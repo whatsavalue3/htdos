@@ -9,6 +9,7 @@
 
 #define GPIO_RESETS (RESETS_RESET_IO_BANK0_MASK | RESETS_RESET_PADS_BANK0_MASK | RESETS_RESET_PWM_MASK)
 
+extern unsigned char _binary_8_GFX_F08_start[];
 
 void DEV_Digital_Write(uint8_t Pin, uint8_t Value)
 {
@@ -22,22 +23,55 @@ void DEV_Digital_Write(uint8_t Pin, uint8_t Value)
 	}
 }
 
+uint8_t par = 0;
+uint8_t prev = 0;
+
 void DEV_SPI_WriteByte(uint8_t Value)
+{
+	/*
+	if(par == 0)
+	{
+		prev = Value;
+		par = 1;
+		return;
+	}
+	par = 0;
+	*/
+	while (!(spi1.sspsr&SPI1_SSPSR_TNF_MASK))
+		continue;
+	spi1.sspdr = (uint32_t)Value;// | (((uint32_t)prev)<<8);
+	
+	
+	//while (spi1.sspsr&SPI1_SSPSR_RNE_MASK)
+	//	(void)spi1.sspdr;
+	while (spi1.sspsr&SPI1_SSPSR_BSY_MASK)
+		continue;
+	//while (spi1.sspsr&SPI1_SSPSR_RNE_MASK)
+	//	(void)spi1.sspdr;
+	
+	// Don't leave overrun flag set
+	spi1.sspicr = SPI1_SSPICR_RORIC_MASK;
+}
+
+
+void DEV_SPI_WriteWord(uint16_t Value)
 {
 	while (!(spi1.sspsr&SPI1_SSPSR_TNF_MASK))
 		continue;
 	spi1.sspdr = (uint32_t)Value;
 	
-	while (spi1.sspsr&SPI1_SSPSR_RNE_MASK)
-		(void)spi1.sspdr;
+	
+	//while (spi1.sspsr&SPI1_SSPSR_RNE_MASK)
+	//	(void)spi1.sspdr;
 	while (spi1.sspsr&SPI1_SSPSR_BSY_MASK)
 		continue;
-	while (spi1.sspsr&SPI1_SSPSR_RNE_MASK)
-		(void)spi1.sspdr;
-
+	//while (spi1.sspsr&SPI1_SSPSR_RNE_MASK)
+	//	(void)spi1.sspdr;
+	
 	// Don't leave overrun flag set
 	spi1.sspicr = SPI1_SSPICR_RORIC_MASK;
 }
+
 
 void LCD_2IN_SendCommand(uint8_t Reg)
 {
@@ -59,6 +93,7 @@ void LCD_2IN_SendData_8Bit(uint8_t Data)
 	DEV_SPI_WriteByte(Data);
 	DEV_Digital_Write(9, 1);
 }
+
 
 
 /******************************************************************************
@@ -206,12 +241,13 @@ void LCD_2IN_Clear(UWORD Color)
 	LCD_2IN_SetWindows(0, 0, LCD_2IN_HEIGHT,LCD_2IN_WIDTH);
 	DEV_Digital_Write(LCD_DC_PIN, 1);
 	DEV_Digital_Write(LCD_CS_PIN, 0);
+	
 	for(int i = 0; i < LCD_2IN_WIDTH; i++)
 	{
 		for(int j = 0; j < LCD_2IN_HEIGHT; j++)
 		{
-			LCD_2IN_SendData_8Bit(Color>>8);
-			LCD_2IN_SendData_8Bit(Color&0xff);
+			DEV_SPI_WriteByte(Color>>8);
+			DEV_SPI_WriteByte(Color&0xff);
 		}
 	}
 	DEV_Digital_Write(LCD_CS_PIN, 1);
@@ -238,43 +274,49 @@ void LCD_2IN_SetAttributes(UBYTE Scan_dir)
 	LCD_2IN_SendData_8Bit(MemoryAccessReg);	//0x08 set RGB
 }
 
+void render()
+{
+	LCD_2IN_SetWindows(0,0,8,LCD_2IN_WIDTH);
+	DEV_Digital_Write(LCD_DC_PIN, 1);
+	DEV_Digital_Write(LCD_CS_PIN, 0);
+	for(int i = 0; i < LCD_2IN_WIDTH; i++)
+	{
+		unsigned char b = _binary_8_GFX_F08_start[i];
+		
+		for(int x = 0; x < 8; x++)
+		{
+			if(b&1)
+			{
+				DEV_SPI_WriteByte(0xff);
+				DEV_SPI_WriteByte(0xff);
+			}
+			else
+			{
+				DEV_SPI_WriteByte(0x0);
+				DEV_SPI_WriteByte(0x0);
+			}
+			b >>= 1;
+		}
+	}
+	DEV_Digital_Write(LCD_CS_PIN, 1);
+}
 
 void main()
 {
-	char c;
-	
-	__asm__ volatile ("cpsid i");
-	configure_usbcdc();
-	__asm__ volatile ("cpsie i");
-
-	
-	while(1){
-		if( usbcdc_getchar(&c)){
-			usbcdc_putchar(c);
-			if(c == '.')
-			{
-				break;
-			}
-		}
-	}
-	
 	clocks.clk_peri_ctrl = CLOCKS_CLK_PERI_CTRL_AUXSRC(0) |
 	CLOCKS_CLK_PERI_CTRL_ENABLE_MASK;
 	//Change divider to 1.0
 	clocks.clk_peri_div = CLOCKS_CLK_PERI_DIV_INT(1);
 	
-	usbcdc_putchar('f');
 	
 	
 	resets.reset_clr = RESETS_RESET_SPI1_MASK;
 	while( (resets.reset_done & RESETS_RESET_SPI1_MASK) != RESETS_RESET_SPI1_MASK)
 		continue;
-	usbcdc_putchar('u');
 	
 	resets.reset_clr = GPIO_RESETS;
 	while( (resets.reset_done & GPIO_RESETS) != GPIO_RESETS)
 		continue;
-	usbcdc_putchar('c');
 	
 	
 	pwm.ch6_top = 100;
@@ -380,7 +422,7 @@ void main()
 	IO_BANK0_GPIO11_CTRL_OUTOVER(0) |
 	IO_BANK0_GPIO11_CTRL_FUNCSEL(1);
 	
-	spi1.sspcpsr = 150;
+	spi1.sspcpsr = 2;
 	spi1.sspcr0 = (1<<8) | 0b0111;
 	spi1.sspcr1 = 0b0010;
 	
@@ -420,22 +462,10 @@ void main()
 	
 	LCD_2IN_SetAttributes(1);
 	LCD_2IN_InitReg();
+	LCD_2IN_Clear(0x0000);
 	while(1)
 	{
-		usbcdc_putchar('k');
-		LCD_2IN_Clear(0xffff);
-		usbcdc_putchar('i');
-		for(volatile int i = 0; i < 100000; i++)
-		{
-			
-		}
-		usbcdc_putchar('n');
-		LCD_2IN_Clear(0x0000);
-		usbcdc_putchar('g');
-		for(volatile int i = 0; i < 100000; i++)
-		{
-			
-		}
-		usbcdc_putchar('!');
+		//LCD_2IN_Clear(0xffff);
+		render();
 	}
 }

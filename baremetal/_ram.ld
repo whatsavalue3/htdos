@@ -58,6 +58,7 @@ SECTIONS
 		__data_lma = LOADADDR(DATA);
 		__data = .;
 		*(.data*)
+		KEEP(8_GFX.o)
 		__edata = .;
 	} >RAM AT> FLASH
 
