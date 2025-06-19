@@ -9,6 +9,7 @@
 
 #define GPIO_RESETS (RESETS_RESET_IO_BANK0_MASK | RESETS_RESET_PADS_BANK0_MASK | RESETS_RESET_PWM_MASK)
 
+
 extern unsigned char _binary_8_GFX_F08_start[];
 
 void DEV_Digital_Write(uint8_t Pin, uint8_t Value)
@@ -274,18 +275,20 @@ void LCD_2IN_SetAttributes(UBYTE Scan_dir)
 	LCD_2IN_SendData_8Bit(MemoryAccessReg);	//0x08 set RGB
 }
 
-void render()
+void renderChar(unsigned short x, unsigned short y, char c)
 {
-	LCD_2IN_SetWindows(0,0,8,LCD_2IN_WIDTH);
+	int sx = x << 3;
+	int sy = y << 3;
+	LCD_2IN_SetWindows(sx,sy,sx+8,sy+8);
 	DEV_Digital_Write(LCD_DC_PIN, 1);
 	DEV_Digital_Write(LCD_CS_PIN, 0);
-	for(int i = 0; i < LCD_2IN_WIDTH; i++)
+	for(unsigned int i = 0; i < 8; i++)
 	{
-		unsigned char b = _binary_8_GFX_F08_start[i];
+		unsigned char b = _binary_8_GFX_F08_start[i+((((unsigned int)c)&0xff)<<3)];
 		
 		for(int x = 0; x < 8; x++)
 		{
-			if(b&1)
+			if(b&0x80)
 			{
 				DEV_SPI_WriteByte(0xff);
 				DEV_SPI_WriteByte(0xff);
@@ -295,11 +298,43 @@ void render()
 				DEV_SPI_WriteByte(0x0);
 				DEV_SPI_WriteByte(0x0);
 			}
-			b >>= 1;
+			b <<= 1;
 		}
 	}
 	DEV_Digital_Write(LCD_CS_PIN, 1);
 }
+
+
+void render(const char* msg)
+{
+	unsigned short o = 0;
+	while(msg[o] != 0)
+	{
+		renderChar(o,0,msg[o]);
+		++o;
+	}
+}
+
+void renderDword(uint32_t v, uint16_t y)
+{
+	unsigned short o = 0;
+	while(o < 8)
+	{
+		uint32_t h = v>>28;
+		if(h < 0xa)
+		{
+			renderChar(o,y,h+'0');
+		}
+		else
+		{
+			renderChar(o,y,h+'A'-0xa);
+		}
+		v <<= 4;
+		++o;
+	}
+}
+
+void* malloc(uint32_t size);
 
 void main()
 {
@@ -423,7 +458,7 @@ void main()
 	IO_BANK0_GPIO11_CTRL_FUNCSEL(1);
 	
 	spi1.sspcpsr = 2;
-	spi1.sspcr0 = (1<<8) | 0b0111;
+	spi1.sspcr0 = (0<<8) | 0b0111;
 	spi1.sspcr1 = 0b0010;
 	
 	  pads_bank0.gpio10 = 
@@ -460,12 +495,76 @@ void main()
 		
 	}
 	
-	LCD_2IN_SetAttributes(1);
+	LCD_2IN_SetAttributes(0);
 	LCD_2IN_InitReg();
 	LCD_2IN_Clear(0x0000);
+	void* test = malloc(0x100);
+	void* test2 = malloc(0x100);
+	free(test);
+	void* test3 = malloc(0x60);
 	while(1)
 	{
 		//LCD_2IN_Clear(0xffff);
-		render();
+		render("HT-DOS v0.00");
+		renderDword((uint32_t)test3,1);
+	}
+}
+
+char* const userspace_begin = (char* const)(0x20004000);
+unsigned char allocated[8192];
+
+void* malloc(uint32_t size)
+{
+	if(size == 0)
+	{
+		return 0;
+	}
+	if(size < 8)
+	{
+		size = 8;
+	}
+	size += 7;
+	size >>= 3;
+	int space = 0;
+	int begin = 0;
+	for(int i = 0; i < 65536; i++)
+	{
+		int spot = i>>3;
+		int bit = i&0x7;
+		if(allocated[spot]&(1<<bit))
+		{
+			space = 0;
+			begin = i+1;
+		}
+		else
+		{
+			++space;
+			if(space > size)
+			{
+				for(int j = begin; j <= i; j++)
+				{
+					int setspot = j>>3;
+					int setbit = j&0x7;
+					allocated[setspot] |= 1<<setbit;
+				}
+				*(uint32_t*)(userspace_begin + (begin<<3)) = size;
+				return userspace_begin + (begin<<3) + 8;
+			}
+		}
+	}
+	return 0;
+}
+
+void free(void* ptr)
+{
+	uint32_t size = (*(uint32_t*)(((char*)ptr)-8));
+	int begin = ((int)((char*)ptr-userspace_begin-8))>>3;
+	renderDword((uint32_t)begin,2);
+	renderDword((uint32_t)size,3);
+	for(int i = begin; i < begin+size; i++)
+	{
+		int spot = i>>3;
+		int bit = i&0x7;
+		allocated[spot] &= ~(1<<bit);
 	}
 }
