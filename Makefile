@@ -21,6 +21,7 @@
 # IN THE SOFTWARE.
 
 CC = arm-none-eabi-gcc
+CXX = arm-none-eabi-g++
 OBJSIZE = arm-none-eabi-size
 ELF2UF2 = tools/elf2uf2.py
 INCLUDES = -Idrivers -Ibaremetal/include -Ilib -Iinclude
@@ -56,6 +57,9 @@ clean:
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
+
+%.o: %.cpp
+	$(CXX) $(CFLAGS) -c $< -o $@
 
 %.uf2: %.elf
 	$(ELF2UF2) -v $<

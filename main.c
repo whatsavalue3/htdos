@@ -275,11 +275,11 @@ void LCD_2IN_SetAttributes(UBYTE Scan_dir)
 	LCD_2IN_SendData_8Bit(MemoryAccessReg);	//0x08 set RGB
 }
 
-uint16_t pix[240*320];
+uint8_t pix[240*320/8];
 
 void renderChar(unsigned short x, unsigned short y, char c)
 {
-	int sx = x << 3;
+	int sx = x;
 	int sy = y << 3;
 	//LCD_2IN_SetWindows(sx,sy,sx+8,sy+8);
 	//DEV_Digital_Write(LCD_DC_PIN, 1);
@@ -287,23 +287,8 @@ void renderChar(unsigned short x, unsigned short y, char c)
 	for(unsigned int i = 0; i < 8; i++)
 	{
 		unsigned char b = _binary_8_GFX_F08_start[i+((((unsigned int)c)&0xff)<<3)];
-		int pos = (sy+i)*320+sx;
-		for(int x = 0; x < 8; x++)
-		{
-			if(b&0x80)
-			{
-				pix[pos+x] = 0xffff;
-				//DEV_SPI_WriteByte(0xff);
-				//DEV_SPI_WriteByte(0xff);
-			}
-			else
-			{
-				pix[pos+x] = 0x0000;
-				//DEV_SPI_WriteByte(0x0);
-				//DEV_SPI_WriteByte(0x0);
-			}
-			b <<= 1;
-		}
+		int pos = (sy+i)*40+sx;
+		pix[pos] = b;
 	}
 	//DEV_Digital_Write(LCD_CS_PIN, 1);
 }
@@ -385,11 +370,23 @@ void blit()
 	LCD_2IN_SetWindows(0,0,LCD_2IN_HEIGHT,LCD_2IN_WIDTH);
 	DEV_Digital_Write(LCD_DC_PIN, 1);
 	DEV_Digital_Write(LCD_CS_PIN, 0);
-	for(unsigned int i = 0; i < 240*320; i++)
+	for(unsigned int i = 0; i < 240*40; i++)
 	{
-		uint16_t col = pix[i];
-		DEV_SPI_WriteByte(col>>8);
-		DEV_SPI_WriteByte(col&0xff);
+		uint16_t b = pix[i];
+		for(int j = 0; j < 8; j++)
+		{
+			if(b&0x80)
+			{
+				DEV_SPI_WriteByte(0xff);
+				DEV_SPI_WriteByte(0xff);
+			}
+			else
+			{
+				DEV_SPI_WriteByte(0x00);
+				DEV_SPI_WriteByte(0x00);
+			}
+			b <<= 1;
+		}
 	}
 	
 	DEV_Digital_Write(LCD_CS_PIN, 1);
@@ -397,23 +394,114 @@ void blit()
 
 unsigned short printptr = 0;
 
+void scroll()
+{
+	for(int i = 0; i < 1200-120; i++)
+	{
+		terminal[i] = terminal[i+40];
+	}
+	for(int i = 1200-120; i < 1200; i++)
+	{
+		terminal[i] = 0;
+	}
+}
+
 void print(const char* text)
 {
 	unsigned short o = 0;
 	while(text[o] != 0)
 	{
-		terminal[printptr] = text[o];
+		if(text[o] == '\n')
+		{
+			printptr = printptr + 40-(printptr%40);
+		}
+		else
+		{
+			terminal[printptr] = text[o];
+			++printptr;
+		}
 		++o;
-		++printptr;
 		if(printptr >= 1200)
 		{
-			printptr = 0;
+			scroll();
+			printptr = 1200-120;
 		}
+	}
+}
+
+void printDword(uint32_t v)
+{
+	unsigned short o = 0;
+	while(o < 8)
+	{
+		uint32_t h = v>>28;
+		char c[2] = {0,0};
+		if(h < 0xa)
+		{
+			c[0] = h+'0';
+		}
+		else
+		{
+			c[0] = h+'A'-0xa;
+		}
+		print(c);
+		v <<= 4;
+		++o;
+	}
+}
+
+void printInt(uint32_t v)
+{
+	unsigned short o = 0;
+	while(o < 8)
+	{
+		uint32_t h = v/10000000;
+		char c[2] = {0,0};
+		if(h < 0xa)
+		{
+			c[0] = h+'0';
+		}
+		print(c);
+		v -= h*10000000;
+		v*=10;
+		++o;
 	}
 }
 
 
 void* malloc(uint32_t size);
+extern char __userspace_begin[];
+
+char currentcmd[256];
+int currentcmdpos = 0;
+
+bool StringEquals(const char* a, const char* b)
+{
+	unsigned short o = 0;
+	while(a[o] == b[o])
+	{
+		if(a[o] == 0)
+		{
+			return true;
+		}
+		++o;
+	}
+	return false;
+}
+
+void Exec(const char* cmd)
+{
+	if(StringEquals(cmd,"hi"))
+	{
+		print("\nhello\n");
+	}
+	else
+	{
+		print("\ninvalid command: ");
+		print(cmd);
+		print("\n");
+	}
+}
 
 void main()
 {
@@ -651,6 +739,9 @@ void main()
 	char curchar = 0;
 	int progress = 0;
 	uint32_t previn = 0;
+	print("available ram:  ");
+	printInt((0x20080000 - (uint32_t)__userspace_begin)>>10);
+	print(" KB\n");
 	while(1)
 	{
 		//LCD_2IN_Clear(0xffff);
@@ -714,15 +805,35 @@ void main()
 			previn &= ~(1<<3);
 		}
 		terminal[printptr] = curchar;
+		currentcmd[currentcmdpos] = curchar;
+		if(currentcmdpos > 254)
+		{
+			curchar = 0xff;
+		}
 		if(progress >= 4)
 		{
 			if(curchar == 0)
 			{
 				printptr--;
+				currentcmdpos--;
 				terminal[printptr] = 0;
+				currentcmd[currentcmdpos] = 0;
+			}
+			else if(curchar == 0xff)
+			{
+				currentcmd[currentcmdpos] = 0;
+				terminal[printptr] = 0;
+				printptr = printptr + 40-(printptr%40);
+				Exec(currentcmd);
+				currentcmdpos = 0;
+				for(int i = 0; i < 256; i++)
+				{
+					currentcmd[i] = 0;
+				}
 			}
 			else
 			{
+				currentcmdpos++;
 				printptr++;
 			}
 			curchar = 0;
@@ -730,7 +841,8 @@ void main()
 		}
 		if(printptr >= 1200)
 		{
-			printptr = 0;
+			scroll();
+			printptr = 1200-120;
 		}
 		
 		draw();
@@ -775,7 +887,6 @@ void main()
 
 
 
-char* const userspace_begin = (char* const)(0x20004000);
 unsigned char allocated[8192];
 
 void* malloc(uint32_t size)
@@ -812,8 +923,8 @@ void* malloc(uint32_t size)
 					int setbit = j&0x7;
 					allocated[setspot] |= 1<<setbit;
 				}
-				*(uint32_t*)(userspace_begin + (begin<<3)) = size;
-				return userspace_begin + (begin<<3) + 8;
+				*(uint32_t*)(__userspace_begin + (begin<<3)) = size;
+				return __userspace_begin + (begin<<3) + 8;
 			}
 		}
 	}
@@ -823,7 +934,7 @@ void* malloc(uint32_t size)
 void free(void* ptr)
 {
 	uint32_t size = (*(uint32_t*)(((char*)ptr)-8));
-	int begin = ((int)((char*)ptr-userspace_begin-8))>>3;
+	int begin = ((int)((char*)ptr-__userspace_begin-8))>>3;
 	for(int i = begin; i < begin+size; i++)
 	{
 		int spot = i>>3;

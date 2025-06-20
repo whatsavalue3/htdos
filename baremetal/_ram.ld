@@ -69,6 +69,7 @@ SECTIONS
 	} > RAM
 	__ebss = .;
 	__end = .;
+	__userspace_begin = .;
 
     
 }
