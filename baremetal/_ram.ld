@@ -45,6 +45,10 @@ SECTIONS
 
 	.symbol : {
 	} > FLASH
+	
+	DISK : {
+		KEEP(disk.o)
+	} > FLASH
 
 	TEXT : {
 		__text_lma = LOADADDR(TEXT);

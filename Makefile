@@ -64,8 +64,8 @@ clean:
 %.uf2: %.elf
 	$(ELF2UF2) -v $<
 
-%.elf: %.c $(LIBS) _crt0.o _$(EXECUTEFROM)_init.o _newlib_stubs.o
-	$(CC) $(CFLAGS) $(LINKOPTS) -T $(LINKSCRIPT) -o $@ $^ 8_GFX.o
+%.elf: %.c $(LIBS) _crt0.o _$(EXECUTEFROM)_init.o _newlib_stubs.o fat.o
+	$(CC) $(CFLAGS) $(LINKOPTS) -T $(LINKSCRIPT) -o $@ $^ 8_GFX.o disk.o
 	@echo
 	@echo Generated Program has the following segments: \n
 	@echo

@@ -6,6 +6,7 @@
 #include <rp2350/spi.h>
 #include <rp2350/clocks.h>
 #include <usbcdc.h>
+#include "fat.h"
 
 #define GPIO_RESETS (RESETS_RESET_IO_BANK0_MASK | RESETS_RESET_PADS_BANK0_MASK | RESETS_RESET_PWM_MASK)
 
@@ -396,11 +397,11 @@ unsigned short printptr = 0;
 
 void scroll()
 {
-	for(int i = 0; i < 1200-120; i++)
+	for(int i = 0; i < 1200-150; i++)
 	{
 		terminal[i] = terminal[i+40];
 	}
-	for(int i = 1200-120; i < 1200; i++)
+	for(int i = 1200-150; i < 1200; i++)
 	{
 		terminal[i] = 0;
 	}
@@ -422,10 +423,10 @@ void print(const char* text)
 			++printptr;
 		}
 		++o;
-		if(printptr >= 1200)
+		if(printptr >= 1200-120)
 		{
 			scroll();
-			printptr = 1200-120;
+			printptr = 1200-150;
 		}
 	}
 }
@@ -490,6 +491,39 @@ bool StringEquals(const char* a, const char* b)
 	return false;
 }
 
+bool StringStartsWith(const char* a, const char* b)
+{
+	unsigned short o = 0;
+	while((a[o] == b[o]) || (b[o] == 0))
+	{
+		if(b[o] == 0)
+		{
+			return true;
+		}
+		++o;
+	}
+	return false;
+}
+
+void StringConcat(char* out, const char* a, const char* b)
+{
+	unsigned short o = 0;
+	while(a[o] != 0)
+	{
+		out[o] = a[o];
+		++o;
+	}
+	unsigned short i = 0;
+	while(b[i] != 0)
+	{
+		out[o] = b[i];
+		++i;
+		++o;
+	}
+}
+
+Dir dir;
+DirInfo dirinfo;
 void Exec(const char* cmd)
 {
 	if(StringEquals(cmd, "hi"))
@@ -500,6 +534,25 @@ void Exec(const char* cmd)
 	{
 		print("\n\n ###### #     #  #####  #    # \n #      #     # #     # #   #  \n #      #     # #       #  #   \n #      #     # #       ###    \n #####  #     # #       # #    \n #      #     # #       #  #   \n #      #     # #       #   #  \n #      #     # #     # #    # \n #       #####   #####  #     #\n\n");
 	}
+	else if(StringStartsWith(cmd, "md "))
+	{
+		char foldername[256];
+		StringConcat(foldername,"/drv/",cmd+3);
+		int err = fat_dir_create(&dir,foldername);
+	}
+	else if(StringEquals(cmd, "ls"))
+	{
+		int ret = fat_dir_open(&dir,"/drv/");
+		ret = fat_dir_read(&dir,&dirinfo);
+		while(ret == 0)
+		{
+			print(dirinfo.name);
+			print("\n");
+			ret = fat_dir_next(&dir);
+			ret |= fat_dir_read(&dir,&dirinfo);
+		}
+		//fat_dir_create(&dir,"/newfolder");
+	}
 	else
 	{
 		print("\ninvalid command: ");
@@ -508,8 +561,32 @@ void Exec(const char* cmd)
 	}
 }
 
+extern unsigned char _binary___disk_img_start[];
+
+bool read(uint8_t* buf, uint32_t sect)
+{
+	for(int i = 0; i < 512; i++)
+	{
+		buf[i] = _binary___disk_img_start[(sect<<9) + i];
+	}
+	return true;
+}
+
+bool write(const uint8_t* buf, uint32_t sect)
+{
+	for(int i = 0; i < 512; i++)
+	{
+		_binary___disk_img_start[(sect<<9) + i] = buf[i];
+	}
+	return true;
+}
+
+DiskOps disk = {.read=read,.write=write};
+Fat fatass;
+
 void main()
 {
+	int mounterr = fat_mount(&disk,0,&fatass,"drv");
 	__asm__ volatile ("cpsid i");
 	configure_usbcdc();
 	__asm__ volatile ("cpsie i");
@@ -518,7 +595,6 @@ void main()
 	CLOCKS_CLK_PERI_CTRL_ENABLE_MASK;
 	//Change divider to 1.0
 	clocks.clk_peri_div = CLOCKS_CLK_PERI_DIV_INT(1);
-	
 	
 	
 	resets.reset_clr = RESETS_RESET_SPI1_MASK;
@@ -549,8 +625,7 @@ void main()
 	| PADS_BANK0_GPIO13_PDE(0) 
 	| PADS_BANK0_GPIO13_SCHMITT(0) 
 	| PADS_BANK0_GPIO13_SLEWFAST(0);
-	
-	
+		
 	
 	
 	
@@ -857,10 +932,10 @@ void main()
 			curchar = 0;
 			progress = 0;
 		}
-		if(printptr >= 1200)
+		if(printptr >= 1200-120)
 		{
 			scroll();
-			printptr = 1200-120;
+			printptr = 1200-150;
 		}
 		
 		draw();

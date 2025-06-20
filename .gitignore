@@ -1,3 +1,4 @@
-*.o
+x*.o
 *.out
 !8_GFX.o
+!disk.o
