@@ -304,6 +304,36 @@ void renderChar(unsigned short x, unsigned short y, char c)
 	DEV_Digital_Write(LCD_CS_PIN, 1);
 }
 
+void renderCharInv(unsigned short x, unsigned short y, char c)
+{
+	int sx = x << 3;
+	int sy = y << 3;
+	LCD_2IN_SetWindows(sx,sy,sx+8,sy+8);
+	DEV_Digital_Write(LCD_DC_PIN, 1);
+	DEV_Digital_Write(LCD_CS_PIN, 0);
+	for(unsigned int i = 0; i < 8; i++)
+	{
+		unsigned char b = _binary_8_GFX_F08_start[i+((((unsigned int)c)&0xff)<<3)];
+		
+		for(int x = 0; x < 8; x++)
+		{
+			if(b&0x80)
+			{
+				DEV_SPI_WriteByte(0xff);
+				DEV_SPI_WriteByte(0x00);
+			}
+			else
+			{
+				DEV_SPI_WriteByte(0x00);
+				DEV_SPI_WriteByte(0x44);
+			}
+			b <<= 1;
+		}
+	}
+	DEV_Digital_Write(LCD_CS_PIN, 1);
+}
+
+
 
 void render(const char* msg)
 {
@@ -333,6 +363,36 @@ void renderDword(uint32_t v, uint16_t y)
 		++o;
 	}
 }
+char terminal[1200];
+
+void draw()
+{
+	for(unsigned short y = 0; y < 40; y++)
+	{
+		for(unsigned short x = 0; x < 30; x++)
+		{
+			renderChar(x,y,terminal[(y*30)+x]);
+		}
+	}
+}
+
+unsigned short printptr = 0;
+
+void print(const char* text)
+{
+	unsigned short o = 0;
+	while(text[o] != 0)
+	{
+		terminal[printptr] = text[o];
+		++o;
+		++printptr;
+		if(printptr >= 1200)
+		{
+			printptr = 0;
+		}
+	}
+}
+
 
 void* malloc(uint32_t size);
 
@@ -495,20 +555,195 @@ void main()
 		
 	}
 	
+	int key0 = 15;
+	int key1 = 17;
+	int key2 = 2;
+	int key3 = 3;
+	
+	
+	io_bank0.gpio15_ctrl = 
+	IO_BANK0_GPIO15_CTRL_IRQOVER(0) |
+	IO_BANK0_GPIO15_CTRL_INOVER(0)  |
+	IO_BANK0_GPIO15_CTRL_OEOVER(0)  |
+	IO_BANK0_GPIO15_CTRL_OUTOVER(0) |
+	IO_BANK0_GPIO15_CTRL_FUNCSEL(5);
+	
+	  pads_bank0.gpio15 = 
+ 	  PADS_BANK0_GPIO15_OD(1) 
+	| PADS_BANK0_GPIO15_IE(1) 
+	| PADS_BANK0_GPIO15_DRIVE(0) 
+	| PADS_BANK0_GPIO15_PUE(1) 
+	| PADS_BANK0_GPIO15_PDE(0) 
+	| PADS_BANK0_GPIO15_SCHMITT(0) 
+	| PADS_BANK0_GPIO15_SLEWFAST(0);
+	
+	io_bank0.gpio17_ctrl = 
+	IO_BANK0_GPIO17_CTRL_IRQOVER(0) |
+	IO_BANK0_GPIO17_CTRL_INOVER(0)  |
+	IO_BANK0_GPIO17_CTRL_OEOVER(0)  |
+	IO_BANK0_GPIO17_CTRL_OUTOVER(0) |
+	IO_BANK0_GPIO17_CTRL_FUNCSEL(5);
+	
+	  pads_bank0.gpio17 = 
+ 	  PADS_BANK0_GPIO17_OD(1) 
+	| PADS_BANK0_GPIO17_IE(1) 
+	| PADS_BANK0_GPIO17_DRIVE(0) 
+	| PADS_BANK0_GPIO17_PUE(1) 
+	| PADS_BANK0_GPIO17_PDE(0) 
+	| PADS_BANK0_GPIO17_SCHMITT(0) 
+	| PADS_BANK0_GPIO17_SLEWFAST(0);
+	
+	io_bank0.gpio2_ctrl = 
+	IO_BANK0_GPIO2_CTRL_IRQOVER(0) |
+	IO_BANK0_GPIO2_CTRL_INOVER(0)  |
+	IO_BANK0_GPIO2_CTRL_OEOVER(0)  |
+	IO_BANK0_GPIO2_CTRL_OUTOVER(0) |
+	IO_BANK0_GPIO2_CTRL_FUNCSEL(5);
+	
+	  pads_bank0.gpio2 = 
+ 	  PADS_BANK0_GPIO2_OD(1) 
+	| PADS_BANK0_GPIO2_IE(1) 
+	| PADS_BANK0_GPIO2_DRIVE(0) 
+	| PADS_BANK0_GPIO2_PUE(1) 
+	| PADS_BANK0_GPIO2_PDE(0) 
+	| PADS_BANK0_GPIO2_SCHMITT(0) 
+	| PADS_BANK0_GPIO2_SLEWFAST(0);
+	
+	io_bank0.gpio3_ctrl = 
+	IO_BANK0_GPIO3_CTRL_IRQOVER(0) |
+	IO_BANK0_GPIO3_CTRL_INOVER(0)  |
+	IO_BANK0_GPIO3_CTRL_OEOVER(0)  |
+	IO_BANK0_GPIO3_CTRL_OUTOVER(0) |
+	IO_BANK0_GPIO3_CTRL_FUNCSEL(5);
+	
+	  pads_bank0.gpio3 = 
+ 	  PADS_BANK0_GPIO3_OD(1) 
+	| PADS_BANK0_GPIO3_IE(1) 
+	| PADS_BANK0_GPIO3_DRIVE(0) 
+	| PADS_BANK0_GPIO3_PUE(1) 
+	| PADS_BANK0_GPIO3_PDE(0) 
+	| PADS_BANK0_GPIO3_SCHMITT(0) 
+	| PADS_BANK0_GPIO3_SLEWFAST(0);
+	
+	
 	LCD_2IN_SetAttributes(0);
 	LCD_2IN_InitReg();
 	LCD_2IN_Clear(0x0000);
-	void* test = malloc(0x100);
-	void* test2 = malloc(0x100);
-	free(test);
-	void* test3 = malloc(0x60);
+	char curchar = 0;
+	int progress = 0;
+	uint32_t previn = 0;
 	while(1)
 	{
 		//LCD_2IN_Clear(0xffff);
-		render("HT-DOS v0.00");
-		renderDword((uint32_t)test3,1);
+		//render("HT-DOS v0.00");
+		if((sio.gpio_in&(1<<2)) == 0)
+		{
+			if((previn&(1<<2)) == 0)
+			{
+				curchar <<= 2;
+				curchar |= 0b10;
+				progress++;
+				previn |= 1<<2;
+			}
+		}
+		else
+		{
+			previn &= ~(1<<2);
+		}
+		if((sio.gpio_in&(1<<17)) == 0)
+		{
+			if((previn&(1<<17)) == 0)
+			{
+				curchar <<= 2;
+				curchar |= 0b11;
+				progress++;
+				previn |= 1<<17;
+			}
+		}
+		else
+		{
+			previn &= ~(1<<17);
+		}
+		
+		
+		if((sio.gpio_in&(1<<15)) == 0)
+		{
+			if((previn&(1<<15)) == 0)
+			{
+				curchar <<= 2;
+				curchar |= 0b01;
+				progress++;
+				previn |= 1<<15;
+			}
+		}
+		else
+		{
+			previn &= ~(1<<15);
+		}
+		if((sio.gpio_in&(1<<3)) == 0)
+		{
+			if((previn&(1<<3)) == 0)
+			{
+				curchar <<= 2;
+				progress++;
+				previn |= 1<<3;
+			}
+		}
+		else
+		{
+			previn &= ~(1<<3);
+		}
+		terminal[printptr] = curchar;
+		if(progress >= 4)
+		{
+			printptr++;
+			curchar = 0;
+			progress = 0;
+		}
+		if(printptr >= 1200)
+		{
+			printptr = 0;
+		}
+		draw();
+		
+		
+		char next00 = curchar<<2;
+		char next01 = (curchar<<2) | 0b01;
+		char next10 = (curchar<<2) | 0b10;
+		char next11 = (curchar<<2) | 0b11;
+		int shift = ((3-progress)<<1);
+		char hchar = next00<<shift;
+		
+		int amnt = 1<<((3-progress)<<1);
+		if(amnt > 30)
+		{
+			amnt = 30;
+		}
+		
+		for(int i = 0; i < amnt; i++)
+		{
+			renderChar(i,36,hchar+i);
+		}
+		hchar = next01<<shift;
+		
+		for(int i = 0; i < amnt; i++)
+		{
+			renderChar(i,37,hchar+i);
+		}
+		hchar = next10<<shift;
+		for(int i = 0; i < amnt; i++)
+		{
+			renderChar(i,38,hchar+i);
+		}
+		hchar = next11<<shift;
+		for(int i = 0; i < amnt; i++)
+		{
+			renderChar(i,39,hchar+i);
+		}
 	}
 }
+
+
 
 char* const userspace_begin = (char* const)(0x20004000);
 unsigned char allocated[8192];
@@ -559,8 +794,6 @@ void free(void* ptr)
 {
 	uint32_t size = (*(uint32_t*)(((char*)ptr)-8));
 	int begin = ((int)((char*)ptr-userspace_begin-8))>>3;
-	renderDword((uint32_t)begin,2);
-	renderDword((uint32_t)size,3);
 	for(int i = begin; i < begin+size; i++)
 	{
 		int spot = i>>3;
@@ -568,3 +801,4 @@ void free(void* ptr)
 		allocated[spot] &= ~(1<<bit);
 	}
 }
+
