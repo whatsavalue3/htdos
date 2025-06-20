@@ -411,6 +411,7 @@ void print(const char* text)
 	unsigned short o = 0;
 	while(text[o] != 0)
 	{
+		usbcdc_putchar(text[o]);
 		if(text[o] == '\n')
 		{
 			printptr = printptr + 40-(printptr%40);
@@ -491,9 +492,13 @@ bool StringEquals(const char* a, const char* b)
 
 void Exec(const char* cmd)
 {
-	if(StringEquals(cmd,"hi"))
+	if(StringEquals(cmd, "hi"))
 	{
 		print("\nhello\n");
+	}
+	else if (StringEquals(cmd, "fuck"))
+	{
+		print("\n\n ###### #     #  #####  #    # \n #      #     # #     # #   #  \n #      #     # #       #  #   \n #      #     # #       ###    \n #####  #     # #       # #    \n #      #     # #       #  #   \n #      #     # #       #   #  \n #      #     # #     # #    # \n #       #####   #####  #     #\n\n");
 	}
 	else
 	{
@@ -505,6 +510,10 @@ void Exec(const char* cmd)
 
 void main()
 {
+	__asm__ volatile ("cpsid i");
+	configure_usbcdc();
+	__asm__ volatile ("cpsie i");
+	
 	clocks.clk_peri_ctrl = CLOCKS_CLK_PERI_CTRL_AUXSRC(0) |
 	CLOCKS_CLK_PERI_CTRL_ENABLE_MASK;
 	//Change divider to 1.0
@@ -744,6 +753,13 @@ void main()
 	print(" KB\n");
 	while(1)
 	{
+		char typed = 0;	
+		if (usbcdc_getchar(&typed))
+		{
+			curchar = typed;
+			progress = 4;
+		}
+		
 		//LCD_2IN_Clear(0xffff);
 		//render("HT-DOS v0.00");
 		if((sio.gpio_in&(1<<2)) == 0)
@@ -812,6 +828,8 @@ void main()
 		}
 		if(progress >= 4)
 		{
+			usbcdc_putchar(typed);
+			
 			if(curchar == 0)
 			{
 				printptr--;
@@ -819,7 +837,7 @@ void main()
 				terminal[printptr] = 0;
 				currentcmd[currentcmdpos] = 0;
 			}
-			else if(curchar == 0xff)
+			else if((curchar == 0xff) || (curchar == '\r') || (curchar == '\n'))
 			{
 				currentcmd[currentcmdpos] = 0;
 				terminal[printptr] = 0;
