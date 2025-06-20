@@ -222,8 +222,8 @@ void LCD_2IN_SetWindows(UWORD Xstart, UWORD Ystart, UWORD Xend, UWORD Yend)
 	// printf("%d %d\r\n",x,y);
 }
 
-#define LCD_2IN_HEIGHT 240
-#define LCD_2IN_WIDTH 320
+#define LCD_2IN_HEIGHT 320
+#define LCD_2IN_WIDTH 240
 
 #define LCD_RST_PIN  12
 #define LCD_DC_PIN   8
@@ -275,33 +275,37 @@ void LCD_2IN_SetAttributes(UBYTE Scan_dir)
 	LCD_2IN_SendData_8Bit(MemoryAccessReg);	//0x08 set RGB
 }
 
+uint16_t pix[240*320];
+
 void renderChar(unsigned short x, unsigned short y, char c)
 {
 	int sx = x << 3;
 	int sy = y << 3;
-	LCD_2IN_SetWindows(sx,sy,sx+8,sy+8);
-	DEV_Digital_Write(LCD_DC_PIN, 1);
-	DEV_Digital_Write(LCD_CS_PIN, 0);
+	//LCD_2IN_SetWindows(sx,sy,sx+8,sy+8);
+	//DEV_Digital_Write(LCD_DC_PIN, 1);
+	//DEV_Digital_Write(LCD_CS_PIN, 0);
 	for(unsigned int i = 0; i < 8; i++)
 	{
 		unsigned char b = _binary_8_GFX_F08_start[i+((((unsigned int)c)&0xff)<<3)];
-		
+		int pos = (sy+i)*320+sx;
 		for(int x = 0; x < 8; x++)
 		{
 			if(b&0x80)
 			{
-				DEV_SPI_WriteByte(0xff);
-				DEV_SPI_WriteByte(0xff);
+				pix[pos+x] = 0xffff;
+				//DEV_SPI_WriteByte(0xff);
+				//DEV_SPI_WriteByte(0xff);
 			}
 			else
 			{
-				DEV_SPI_WriteByte(0x0);
-				DEV_SPI_WriteByte(0x0);
+				pix[pos+x] = 0x0000;
+				//DEV_SPI_WriteByte(0x0);
+				//DEV_SPI_WriteByte(0x0);
 			}
 			b <<= 1;
 		}
 	}
-	DEV_Digital_Write(LCD_CS_PIN, 1);
+	//DEV_Digital_Write(LCD_CS_PIN, 1);
 }
 
 void renderCharInv(unsigned short x, unsigned short y, char c)
@@ -367,13 +371,28 @@ char terminal[1200];
 
 void draw()
 {
-	for(unsigned short y = 0; y < 40; y++)
+	for(unsigned short y = 0; y < 30; y++)
 	{
-		for(unsigned short x = 0; x < 30; x++)
+		for(unsigned short x = 0; x < 40; x++)
 		{
-			renderChar(x,y,terminal[(y*30)+x]);
+			renderChar(x,y,terminal[(y*40)+x]);
 		}
 	}
+}
+
+void blit()
+{
+	LCD_2IN_SetWindows(0,0,LCD_2IN_HEIGHT,LCD_2IN_WIDTH);
+	DEV_Digital_Write(LCD_DC_PIN, 1);
+	DEV_Digital_Write(LCD_CS_PIN, 0);
+	for(unsigned int i = 0; i < 240*320; i++)
+	{
+		uint16_t col = pix[i];
+		DEV_SPI_WriteByte(col>>8);
+		DEV_SPI_WriteByte(col&0xff);
+	}
+	
+	DEV_Digital_Write(LCD_CS_PIN, 1);
 }
 
 unsigned short printptr = 0;
@@ -626,8 +645,8 @@ void main()
 	| PADS_BANK0_GPIO3_SLEWFAST(0);
 	
 	
-	LCD_2IN_SetAttributes(0);
 	LCD_2IN_InitReg();
+	LCD_2IN_SetAttributes(1);
 	LCD_2IN_Clear(0x0000);
 	char curchar = 0;
 	int progress = 0;
@@ -641,7 +660,7 @@ void main()
 			if((previn&(1<<2)) == 0)
 			{
 				curchar <<= 2;
-				curchar |= 0b10;
+				curchar |= 0b11;
 				progress++;
 				previn |= 1<<2;
 			}
@@ -655,7 +674,7 @@ void main()
 			if((previn&(1<<17)) == 0)
 			{
 				curchar <<= 2;
-				curchar |= 0b11;
+				curchar |= 0b01;
 				progress++;
 				previn |= 1<<17;
 			}
@@ -671,7 +690,7 @@ void main()
 			if((previn&(1<<15)) == 0)
 			{
 				curchar <<= 2;
-				curchar |= 0b01;
+				curchar |= 0b00;
 				progress++;
 				previn |= 1<<15;
 			}
@@ -685,6 +704,7 @@ void main()
 			if((previn&(1<<3)) == 0)
 			{
 				curchar <<= 2;
+				curchar |= 0b10;
 				progress++;
 				previn |= 1<<3;
 			}
@@ -696,7 +716,15 @@ void main()
 		terminal[printptr] = curchar;
 		if(progress >= 4)
 		{
-			printptr++;
+			if(curchar == 0)
+			{
+				printptr--;
+				terminal[printptr] = 0;
+			}
+			else
+			{
+				printptr++;
+			}
 			curchar = 0;
 			progress = 0;
 		}
@@ -704,8 +732,8 @@ void main()
 		{
 			printptr = 0;
 		}
-		draw();
 		
+		draw();
 		
 		char next00 = curchar<<2;
 		char next01 = (curchar<<2) | 0b01;
@@ -715,31 +743,33 @@ void main()
 		char hchar = next00<<shift;
 		
 		int amnt = 1<<((3-progress)<<1);
-		if(amnt > 30)
+		if(amnt > 18)
 		{
-			amnt = 30;
+			amnt = 18;
 		}
 		
 		for(int i = 0; i < amnt; i++)
 		{
-			renderChar(i,36,hchar+i);
+			renderChar(i,27,hchar+i);
 		}
 		hchar = next01<<shift;
 		
 		for(int i = 0; i < amnt; i++)
 		{
-			renderChar(i,37,hchar+i);
+			renderChar(i+21,27,hchar+i);
 		}
 		hchar = next10<<shift;
 		for(int i = 0; i < amnt; i++)
 		{
-			renderChar(i,38,hchar+i);
+			renderChar(i,29,hchar+i);
 		}
 		hchar = next11<<shift;
 		for(int i = 0; i < amnt; i++)
 		{
-			renderChar(i,39,hchar+i);
+			renderChar(i+21,29,hchar+i);
 		}
+		
+		blit();
 	}
 }
 
