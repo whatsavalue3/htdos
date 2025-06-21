@@ -981,8 +981,6 @@ static int dir_add(Dir* dir, const char* name, int len, uint8_t attr, uint32_t c
   return FAT_ERR_NONE;
 }
 
-void print(const char* text);
-
 //------------------------------------------------------------------------------
 static bool get_part_lba(uint8_t* buf, int partition, uint32_t* lba)
 {
@@ -1002,30 +1000,22 @@ static bool get_part_lba(uint8_t* buf, int partition, uint32_t* lba)
 static bool check_fat(uint8_t* buf)
 {
   Bpb* bpb = (Bpb*)buf;
-  print("1\n");
   if (bpb->jump[0] != 0xeb && bpb->jump[0] != 0xe9)
     return false;
-  print("2\n");
   // Check if we need to be this strict.
   if (bpb->fat_cnt != 2)
     return false;
-  print("3\n");
   if (bpb->root_ent_cnt || bpb->sect_cnt_16 || bpb->sect_per_fat_16)
     return false;
-  print("4\n");
   if (bpb->info_sect != 1)
     return false;
-  print("5\n");
   if (memcmp(bpb->fs_type, "FAT32   ", 8))
     return false;
-  print("6\n");
   if (bpb->bytes_per_sect != 512)
     return false;
-  print("7\n");
   // Only two FAT tables should exist
   if (!(bpb->ext_flags & EXT_FLAG_MIRROR) && (bpb->ext_flags & EXT_FLAG_ACT) > 1)
     return false;
-  print("8\n");
   // FAT type is determined from the count of clusters
   //uint32_t sect_cnt = bpb->sect_cnt_32 - (bpb->res_sect_cnt + bpb->fat_cnt * bpb->sect_per_fat_32);
   return true;

@@ -5,8 +5,11 @@
 #include <rp2350/pwm.h>
 #include <rp2350/spi.h>
 #include <rp2350/clocks.h>
+#include <rp2350/xip.h>
+#include <rp2350/qmi.h>
 #include <usbcdc.h>
 #include "fat.h"
+#include <stddef.h>
 
 #define GPIO_RESETS (RESETS_RESET_IO_BANK0_MASK | RESETS_RESET_PADS_BANK0_MASK | RESETS_RESET_PWM_MASK)
 
@@ -278,7 +281,7 @@ void LCD_2IN_SetAttributes(UBYTE Scan_dir)
 
 uint8_t pix[240*320/8];
 
-void renderChar(unsigned short x, unsigned short y, char c)
+void renderChar(unsigned short x, unsigned short y, char c, char f)
 {
 	int sx = x;
 	int sy = y << 3;
@@ -289,7 +292,7 @@ void renderChar(unsigned short x, unsigned short y, char c)
 	{
 		unsigned char b = _binary_8_GFX_F08_start[i+((((unsigned int)c)&0xff)<<3)];
 		int pos = (sy+i)*40+sx;
-		pix[pos] = b;
+		pix[pos] = b^f;
 	}
 	//DEV_Digital_Write(LCD_CS_PIN, 1);
 }
@@ -330,7 +333,7 @@ void render(const char* msg)
 	unsigned short o = 0;
 	while(msg[o] != 0)
 	{
-		renderChar(o,0,msg[o]);
+		renderChar(o,0,msg[o],'\x00');
 		++o;
 	}
 }
@@ -343,17 +346,19 @@ void renderDword(uint32_t v, uint16_t y)
 		uint32_t h = v>>28;
 		if(h < 0xa)
 		{
-			renderChar(o,y,h+'0');
+			renderChar(o,y,h+'0','\x00');
 		}
 		else
 		{
-			renderChar(o,y,h+'A'-0xa);
+			renderChar(o,y,h+'A'-0xa,'\x00');
 		}
 		v <<= 4;
 		++o;
 	}
 }
 char terminal[1200];
+char terminalFlags[1200];
+Fat fatass;
 
 void draw()
 {
@@ -361,7 +366,7 @@ void draw()
 	{
 		for(unsigned short x = 0; x < 40; x++)
 		{
-			renderChar(x,y,terminal[(y*40)+x]);
+			renderChar(x,y,terminal[(y*40)+x],terminalFlags[(y*40)+x]);
 		}
 	}
 }
@@ -397,13 +402,15 @@ unsigned short printptr = 0;
 
 void scroll()
 {
-	for(int i = 0; i < 1200-150; i++)
+	for(int i = 0; i < 1200-160; i++)
 	{
 		terminal[i] = terminal[i+40];
+		terminalFlags[i] = terminalFlags[i+40];
 	}
-	for(int i = 1200-150; i < 1200; i++)
+	for(int i = 1200-160; i < 1200; i++)
 	{
 		terminal[i] = 0;
+		terminalFlags[i] = 0;
 	}
 }
 
@@ -426,10 +433,36 @@ void print(const char* text)
 		if(printptr >= 1200-120)
 		{
 			scroll();
-			printptr = 1200-150;
+			printptr = 1200-160;
 		}
 	}
 }
+
+void printFlags(const char* text,const char* flags)
+{
+	unsigned short o = 0;
+	while(text[o] != 0)
+	{
+		usbcdc_putchar(text[o]);
+		if(text[o] == '\n')
+		{
+			printptr = printptr + 40-(printptr%40);
+		}
+		else
+		{
+			terminal[printptr] = text[o];
+			terminalFlags[printptr] = flags[o];
+			++printptr;
+		}
+		++o;
+		if(printptr >= 1200-120)
+		{
+			scroll();
+			printptr = 1200-160;
+		}
+	}
+}
+
 
 void printDword(uint32_t v)
 {
@@ -520,10 +553,36 @@ void StringConcat(char* out, const char* a, const char* b)
 		++i;
 		++o;
 	}
+	out[o] = '\x00';
+}
+
+unsigned short StringLength(const char* a)
+{
+	unsigned short o = 0;
+	while(a[o] != 0)
+	{
+		++o;
+	}
+	return o;
+}
+
+void StringRemoveAfterLast(char* a, char chr, unsigned short start)
+{
+	unsigned short o = start;
+	while(o > 0)
+	{
+		--o;
+		if(a[o] == chr)
+		{
+			a[o+1] = '\x00';
+			return;
+		}
+	}
 }
 
 Dir dir;
 DirInfo dirinfo;
+char curdir[256] = "/drv/";
 void Exec(const char* cmd)
 {
 	if(StringEquals(cmd, "hi"))
@@ -536,23 +595,71 @@ void Exec(const char* cmd)
 	}
 	else if(StringStartsWith(cmd, "md "))
 	{
+		fat_dir_open(&dir,curdir);
 		char foldername[256];
-		StringConcat(foldername,"/drv/",cmd+3);
+		StringConcat(foldername,curdir,cmd+3);
 		int err = fat_dir_create(&dir,foldername);
+		if(err == 0)
+		{
+			print("SUCC\n");
+		}
+		else
+		{
+			print(fat_get_error(err));
+			print("\n");
+		}
+		fat_sync(&fatass);
+	}
+	else if(StringStartsWith(cmd, "cd "))
+	{
+		fat_dir_open(&dir,curdir);
+		unsigned short len = StringLength(curdir);
+		const char* dir = cmd+3;
+		if(StringEquals(dir,".."))
+		{
+			StringRemoveAfterLast(curdir,'/',len-1);
+			return;
+		}
+		StringConcat(curdir,curdir,dir);
+		StringConcat(curdir,curdir,"/");
+		int err = fat_dir_open(&dir,curdir);
+		if(err != 0)
+		{
+			print("invalid directory");
+			curdir[len] = '\x00';
+		}
+		
+	}
+	else if(StringEquals(cmd,"clr"))
+	{
+		for(int i = 0; i < 1200; i++)
+		{
+			terminal[i] = '\x00';
+			terminalFlags[i] = '\x00';
+		}
+		for(int i = 0; i < 256; i++)
+		{
+			currentcmd[i] = '\x00';
+		}
+		currentcmdpos = 0;
+		printptr = 0;
 	}
 	else if(StringEquals(cmd, "ls"))
 	{
-		int ret = fat_dir_open(&dir,"/drv/");
-		ret = fat_dir_read(&dir,&dirinfo);
+		int ret = fat_dir_open(&dir,curdir);
 		while(ret == 0)
 		{
-			print(dirinfo.name);
-			print("\n");
 			ret = fat_dir_next(&dir);
 			ret |= fat_dir_read(&dir,&dirinfo);
+			dirinfo.name[dirinfo.name_len] = '\x00';
+			printFlags("\xfe\xee","\xff\x00");
+			print(dirinfo.name);
+			print("\n");
 		}
+		fat_dir_rewind(&dir);
 		//fat_dir_create(&dir,"/newfolder");
 	}
+	
 	else
 	{
 		print("\ninvalid command: ");
@@ -561,35 +668,204 @@ void Exec(const char* cmd)
 	}
 }
 
-extern unsigned char _binary___disk_img_start[];
+extern volatile uint8_t _binary___disk_img_start[];
+
 
 bool read(uint8_t* buf, uint32_t sect)
 {
-	for(int i = 0; i < 512; i++)
+	for(int i = 0; i < 128; i++)
 	{
-		buf[i] = _binary___disk_img_start[(sect<<9) + i];
+		((uint32_t*)buf)[i] = ((uint32_t*)(_binary___disk_img_start + 0x00000000))[(sect<<7) + i];
 	}
 	return true;
 }
+
+typedef void *(*rom_table_lookup_fn)(uint32_t code, uint32_t mask);
+typedef void (*rom_flash_range_program_fn)(uint32_t addr, const uint8_t *data, size_t count);
+
+#define BOOT2_SIZE_WORDS 64
+
+static uint32_t boot2_copyout[BOOT2_SIZE_WORDS];
+static bool boot2_copyout_valid = false;
+
+static void flash_init_boot2_copyout(void) {
+    if (boot2_copyout_valid)
+        return;
+    // todo we may want the option of boot2 just being a free function in
+    //      user RAM, e.g. if it is larger than 256 bytes
+    const volatile uint32_t *copy_from = (uint32_t *)(0x400e0000);
+	
+    for (int i = 0; i < BOOT2_SIZE_WORDS; ++i)
+        boot2_copyout[i] = copy_from[i];
+	
+    boot2_copyout_valid = true;
+}
+
+
+static void flash_enable_xip_via_boot2(void) {
+    ((void (*)(void))((intptr_t)boot2_copyout+1))();
+}
+
+
+#define ROM_TABLE_CODE(c1, c2) ((c1) | ((c2) << 8))
+#define ROM_FUNC_FLASH_RANGE_PROGRAM            ROM_TABLE_CODE('R', 'P')
+#define ROM_FUNC_FLASH_ENTER_CMD_XIP            ROM_TABLE_CODE('C', 'X')
+#define ROM_FUNC_FLASH_EXIT_XIP                 ROM_TABLE_CODE('E', 'X')
+#define ROM_FUNC_FLASH_FLUSH_CACHE              ROM_TABLE_CODE('F', 'C')
+#define ROM_FUNC_CONNECT_INTERNAL_FLASH         ROM_TABLE_CODE('I', 'F')
+#define ROM_FUNC_FLASH_RANGE_ERASE              ROM_TABLE_CODE('R', 'E')
+#define ROM_DATA_FLASH_DEVINFO16_PTR            ROM_TABLE_CODE('F', 'D')
+
+typedef enum {
+    FLASH_DEVINFO_SIZE_NONE = 0x0,
+    FLASH_DEVINFO_SIZE_8K = 0x1,
+    FLASH_DEVINFO_SIZE_16K = 0x2,
+    FLASH_DEVINFO_SIZE_32K = 0x3,
+    FLASH_DEVINFO_SIZE_64K = 0x4,
+    FLASH_DEVINFO_SIZE_128K = 0x5,
+    FLASH_DEVINFO_SIZE_256K = 0x6,
+    FLASH_DEVINFO_SIZE_512K = 0x7,
+    FLASH_DEVINFO_SIZE_1M = 0x8,
+    FLASH_DEVINFO_SIZE_2M = 0x9,
+    FLASH_DEVINFO_SIZE_4M = 0xa,
+    FLASH_DEVINFO_SIZE_8M = 0xb,
+    FLASH_DEVINFO_SIZE_16M = 0xc,
+    FLASH_DEVINFO_SIZE_MAX = 0xc
+} flash_devinfo_size_t;
+
+typedef void (*rom_connect_internal_flash_fn)(void);
+typedef void (*rom_flash_exit_xip_fn)(void);
+typedef void (*rom_flash_flush_cache_fn)(void);
+typedef void (*rom_flash_range_erase_fn)(uint32_t, size_t, uint32_t, uint8_t);
+rom_table_lookup_fn rom_func_lookup_inline;
+
+// This is a static symbol because the layout of FLASH_DEVINFO is liable to change from device to
+// device, so fields must have getters/setters.
+static uint16_t * flash_devinfo_ptr(void) {
+    // Note the lookup returns a pointer to a 32-bit pointer literal in the ROM
+    uint16_t **p = (uint16_t **) rom_func_lookup_inline(ROM_DATA_FLASH_DEVINFO16_PTR,0x0040);
+    return *p;
+}
+
+// This is a RAM function because may be called during flash programming to enable save/restore of
+// QMI window 1 registers on RP2350:
+flash_devinfo_size_t flash_devinfo_get_cs1_size() {
+    uint16_t *devinfo = (uint16_t *) flash_devinfo_ptr();
+	return (flash_devinfo_size_t) (
+		(*devinfo & (0x0000f000)) >> 12
+	);
+}
+
+// This is specifically for saving/restoring the registers modified by RP2350
+// flash_exit_xip() ROM func, not the entirety of the QMI window state.
+typedef struct flash_rp2350_qmi_save_state {
+    uint32_t timing;
+    uint32_t rcmd;
+    uint32_t rfmt;
+} flash_rp2350_qmi_save_state_t;
+
+static void flash_rp2350_save_qmi_cs1(flash_rp2350_qmi_save_state_t *state) {
+    state->timing = qmi.m1_timing;
+    state->rcmd = qmi.m1_rcmd;
+    state->rfmt = qmi.m1_rfmt;
+}
+
+static void flash_rp2350_restore_qmi_cs1(const flash_rp2350_qmi_save_state_t *state) {
+	flash_devinfo_size_t s = flash_devinfo_get_cs1_size();
+    if (s == FLASH_DEVINFO_SIZE_NONE) {
+        // Case 1: The RP2350 ROM sets QMI to a clean (03h read) configuration
+        // during flash_exit_xip(), even though when CS1 is not enabled via
+        // FLASH_DEVINFO it does not issue an XIP exit sequence to CS1. In
+        // this case, restore the original register config for CS1 as it is
+        // still the correct config.
+        qmi.m1_timing = state->timing;
+        qmi.m1_rcmd = state->rcmd;
+        qmi.m1_rfmt = state->rfmt;
+    } else {
+        // Case 2: If RAM is attached to CS1, and the ROM has issued an XIP
+        // exit sequence to it, then the ROM re-initialisation of the QMI
+        // registers has actually not gone far enough. The old XIP write mode
+        // is no longer valid when the QSPI RAM is returned to a serial
+        // command state. Restore the default 02h serial write command config.
+        qmi.m1_wfmt = 0x00001000;
+        qmi.m1_wcmd = 0x0000a002;
+    }
+}
+
+
+
+
+
+void flash_range_program(uint32_t flash_offs, const uint8_t *data, size_t count) {
+	rom_flash_range_erase_fn flash_range_erase_func = (rom_flash_range_erase_fn)rom_func_lookup_inline(ROM_FUNC_FLASH_RANGE_ERASE,0x0004);
+	rom_connect_internal_flash_fn connect_internal_flash_func = (rom_connect_internal_flash_fn)rom_func_lookup_inline(ROM_FUNC_CONNECT_INTERNAL_FLASH,0x0004);
+	rom_flash_exit_xip_fn flash_exit_xip_func = (rom_flash_exit_xip_fn)rom_func_lookup_inline(ROM_FUNC_FLASH_EXIT_XIP,0x0004);
+	rom_flash_range_program_fn flash_range_program_func = (rom_flash_range_program_fn)rom_func_lookup_inline(ROM_FUNC_FLASH_RANGE_PROGRAM,0x0004);
+	rom_flash_flush_cache_fn flash_flush_cache_func = (rom_flash_flush_cache_fn)rom_func_lookup_inline(ROM_FUNC_FLASH_FLUSH_CACHE,0x0004);
+	
+	
+	flash_init_boot2_copyout();
+    for (uintptr_t offset = 0; offset < 0x4000000; offset += 8) {
+        *(volatile uint8_t *) (0x18000001 + offset) = 0;
+    }
+	flash_rp2350_qmi_save_state_t qmi_save;
+	flash_rp2350_save_qmi_cs1(&qmi_save);
+	connect_internal_flash_func();
+	flash_exit_xip_func();
+	flash_range_erase_func(flash_offs, count, (1u << 16), 0xd8);
+	flash_range_program_func(flash_offs, data, count);
+	flash_flush_cache_func();
+	flash_enable_xip_via_boot2();
+	flash_rp2350_restore_qmi_cs1(&qmi_save);
+}
+
+
+uint32_t ass[512];
 
 bool write(const uint8_t* buf, uint32_t sect)
 {
 	for(int i = 0; i < 512; i++)
 	{
-		_binary___disk_img_start[(sect<<9) + i] = buf[i];
+		ass[i] = ((uint32_t*)_binary___disk_img_start)[((sect&0xfffffffc)<<7) + i];
 	}
+	for(int i = 0; i < 128; i++)
+	{
+		ass[i+((sect&0x3)<<7)] = ((uint32_t*)buf)[i];
+	}
+	flash_range_program(_binary___disk_img_start-0x10000000+((sect&0xfffffffc)<<9),ass,4096);
+	/*
+	for(int i = 0; i < 128; i++)
+	{
+		((uint32_t*)(_binary___disk_img_start + 0x00000000))[(sect<<7) + i] = ((uint32_t*)buf)[i];
+	}
+	*/
+	/*
+	for(int i = 0; i < 128; i++)
+	{
+		if(((uint32_t*)(_binary___disk_img_start + 0x00000000))[(sect<<7) + i] != ((uint32_t*)buf)[i])
+		{
+			return false;
+		}
+	}
+	*/
 	return true;
 }
 
 DiskOps disk = {.read=read,.write=write};
-Fat fatass;
+
+
+
 
 void main()
 {
+	rom_func_lookup_inline = (rom_table_lookup_fn) (uintptr_t)*(uint16_t*)(0x16);
+	
 	int mounterr = fat_mount(&disk,0,&fatass,"drv");
 	__asm__ volatile ("cpsid i");
 	configure_usbcdc();
 	__asm__ volatile ("cpsie i");
+	
+	
 	
 	clocks.clk_peri_ctrl = CLOCKS_CLK_PERI_CTRL_AUXSRC(0) |
 	CLOCKS_CLK_PERI_CTRL_ENABLE_MASK;
@@ -751,7 +1027,7 @@ void main()
 	int key2 = 2;
 	int key3 = 3;
 	
-	
+	printDword(xip_ctrl.ctrl);
 	io_bank0.gpio15_ctrl = 
 	IO_BANK0_GPIO15_CTRL_IRQOVER(0) |
 	IO_BANK0_GPIO15_CTRL_INOVER(0)  |
@@ -823,9 +1099,18 @@ void main()
 	char curchar = 0;
 	int progress = 0;
 	uint32_t previn = 0;
+	
+	print("\nrom_func_lookup_inline:");
+	printDword(rom_func_lookup_inline);
+	print("\n_binary___disk_img_start:");
+	printDword(_binary___disk_img_start);
+	print("\n");
+	
 	print("available ram:  ");
 	printInt((0x20080000 - (uint32_t)__userspace_begin)>>10);
 	print(" KB\n");
+	print(curdir);
+	print(">");
 	while(1)
 	{
 		char typed = 0;	
@@ -897,15 +1182,12 @@ void main()
 		}
 		terminal[printptr] = curchar;
 		currentcmd[currentcmdpos] = curchar;
-		if(currentcmdpos > 254)
-		{
-			curchar = 0xff;
-		}
+		
 		if(progress >= 4)
 		{
 			usbcdc_putchar(typed);
 			
-			if(curchar == 0)
+			if((curchar == 0) || (curchar == '\b'))
 			{
 				printptr--;
 				currentcmdpos--;
@@ -923,6 +1205,8 @@ void main()
 				{
 					currentcmd[i] = 0;
 				}
+				print(curdir);
+				print(">");
 			}
 			else
 			{
@@ -935,7 +1219,11 @@ void main()
 		if(printptr >= 1200-120)
 		{
 			scroll();
-			printptr = 1200-150;
+			printptr = 1200-160;
+		}
+		if(currentcmdpos > 254)
+		{
+			curchar = 0x0;
 		}
 		
 		draw();
@@ -955,23 +1243,23 @@ void main()
 		
 		for(int i = 0; i < amnt; i++)
 		{
-			renderChar(i,27,hchar+i);
+			renderChar(i,27,hchar+i,'\x00');
 		}
 		hchar = next01<<shift;
 		
 		for(int i = 0; i < amnt; i++)
 		{
-			renderChar(i+21,27,hchar+i);
+			renderChar(i+21,27,hchar+i,'\x00');
 		}
 		hchar = next10<<shift;
 		for(int i = 0; i < amnt; i++)
 		{
-			renderChar(i,29,hchar+i);
+			renderChar(i,29,hchar+i,'\x00');
 		}
 		hchar = next11<<shift;
 		for(int i = 0; i < amnt; i++)
 		{
-			renderChar(i+21,29,hchar+i);
+			renderChar(i+21,29,hchar+i,'\x00');
 		}
 		
 		blit();

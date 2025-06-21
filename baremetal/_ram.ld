@@ -23,7 +23,7 @@
 
 MEMORY
 {
-  FLASH (rx)  : ORIGIN = 0x10000000,  LENGTH = 4M 
+  FLASH (rwx) : ORIGIN = 0x10000000,  LENGTH = 4M 
   RAM   (rwx) : ORIGIN = 0x20000000,  LENGTH = 520K
 }
 
@@ -46,7 +46,7 @@ SECTIONS
 	.symbol : {
 	} > FLASH
 	
-	DISK : {
+	DISK : ALIGN(4096) {
 		KEEP(disk.o)
 	} > FLASH
 
