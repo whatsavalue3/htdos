@@ -7,6 +7,7 @@
 #include <rp2350/clocks.h>
 #include <rp2350/xip.h>
 #include <rp2350/qmi.h>
+#include <rp2350/m33.h>
 #include <usbcdc.h>
 #include "fat.h"
 #include <stddef.h>
@@ -299,6 +300,8 @@ void renderChar(unsigned short x, unsigned short y, char c, char f)
 	//DEV_Digital_Write(LCD_CS_PIN, 1);
 }
 
+
+
 void renderCharInv(unsigned short x, unsigned short y, char c)
 {
 	int sx = x << 3;
@@ -361,6 +364,13 @@ void renderDword(uint32_t v, uint16_t y)
 char terminal[1200];
 char terminalFlags[1200];
 Fat fatass;
+
+void setChar(unsigned short x, unsigned short y, char c, char f)
+{
+	int pos = y*40+x;
+	terminal[pos] = c;
+	terminalFlags[pos] = f;
+}
 
 void draw()
 {
@@ -487,6 +497,12 @@ void printDword(uint32_t v)
 	}
 }
 
+void dprint(const char* fuck)
+{
+	printDword(fuck);
+	print("\n");
+}
+
 void printInt(uint32_t v)
 {
 	unsigned short o = 0;
@@ -507,249 +523,39 @@ void printInt(uint32_t v)
 
 
 void* malloc(uint32_t size);
+void free(void* ptr);
 extern char __userspace_begin[];
 
-char currentcmd[256];
-int currentcmdpos = 0;
-
-bool StringEquals(const char* a, const char* b)
-{
-	unsigned short o = 0;
-	while(a[o] == b[o])
-	{
-		if(a[o] == 0)
-		{
-			return true;
-		}
-		++o;
-	}
-	return false;
-}
-
-bool StringStartsWith(const char* a, const char* b)
-{
-	unsigned short o = 0;
-	while((a[o] == b[o]) || (b[o] == 0))
-	{
-		if(b[o] == 0)
-		{
-			return true;
-		}
-		++o;
-	}
-	return false;
-}
-
-void StringConcat(char* out, const char* a, const char* b)
-{
-	unsigned short o = 0;
-	while(a[o] != 0)
-	{
-		out[o] = a[o];
-		++o;
-	}
-	unsigned short i = 0;
-	while(b[i] != 0)
-	{
-		out[o] = b[i];
-		++i;
-		++o;
-	}
-	out[o] = '\x00';
-}
-
-unsigned short StringLength(const char* a)
-{
-	unsigned short o = 0;
-	while(a[o] != 0)
-	{
-		++o;
-	}
-	return o;
-}
-
-void StringRemoveAfterLast(char* a, char chr, unsigned short start)
-{
-	unsigned short o = start;
-	while(o > 0)
-	{
-		--o;
-		if(a[o] == chr)
-		{
-			a[o+1] = '\x00';
-			return;
-		}
-	}
-}
-
-char* StringRemoveFirst(char* a, char chr, unsigned short len)
-{
-	unsigned short o = 0;
-	while(o < len)
-	{
-		++o;
-		if(a[o] == chr)
-		{
-			a[o] = '\x00';
-			return &a[o+1];
-		}
-	}
-}
 extern void Run(void* data);
 
-void free(void* ptr);
 
 
 sys_f s_sys = {
 	.malloc = malloc,
 	.free = free,
 	.print = print,
-	.printDword = printDword};
+	.printDword = printDword,
+	.printFlags = printFlags,
+	.fopen = fat_dir_open,
+	.fwrite = fat_file_write,
+	.fread = fat_file_read,
+	.fclose = fat_file_close,
+	.stat = fat_stat,
+	.dopen = fat_dir_open,
+	.dcreate = fat_dir_create,
+	.dread = fat_dir_read,
+	.dnext = fat_dir_next,
+	.drewind = fat_dir_rewind,
+	.terminal = terminal,
+	.terminalFlags = terminalFlags,
+	.printptr = &printptr,
+	.renderChar = setChar,
+	.run = Run,
+	.scroll = scroll,
+};
 sys_f* sys = &s_sys;
 
-Dir dir;
-DirInfo dirinfo;
-char curdir[256] = "/drv/";
-void Exec(const char* cmd)
-{
-	if(StringEquals(cmd, "hi"))
-	{
-		print("\nhello\n");
-	}
-	else if (StringEquals(cmd, "fuck"))
-	{
-		print("\n\n ###### #     #  #####  #    # \n #      #     # #     # #   #  \n #      #     # #       #  #   \n #      #     # #       ###    \n #####  #     # #       # #    \n #      #     # #       #  #   \n #      #     # #       #   #  \n #      #     # #     # #    # \n #       #####   #####  #     #\n\n");
-	}
-	else if(StringStartsWith(cmd, "md "))
-	{
-		fat_dir_open(&dir,curdir);
-		char foldername[256];
-		StringConcat(foldername,curdir,cmd+3);
-		int err = fat_dir_create(&dir,foldername);
-		if(err == 0)
-		{
-			print("SUCC\n");
-		}
-		else
-		{
-			print(fat_get_error(err));
-			print("\n");
-		}
-		fat_sync(&fatass);
-	}
-	else if(StringStartsWith(cmd, "wr "))
-	{
-		unsigned short len = StringLength(curdir);
-		char* content = StringRemoveFirst(cmd+3,' ',len);
-		char filepath[256];
-		StringConcat(filepath,curdir,cmd+3);
-		File file;
-		fat_file_open(&file,filepath,FAT_WRITE | FAT_CREATE);
-		int l;
-		fat_file_write(&file,content,StringLength(content), &l);
-		fat_file_close(&file);
-		fat_sync(&fatass);
-	}
-	else if(StringStartsWith(cmd, "cat "))
-	{
-		unsigned short len = StringLength(curdir);
-		char filepath[256];
-		StringConcat(filepath,curdir,cmd+4);
-		File file;
-		fat_file_open(&file,filepath,FAT_READ | FAT_CREATE);
-		int l;
-		fat_file_read(&file,filepath,256, &l);
-		filepath[l] = '\x00';
-		fat_file_close(&file);
-		fat_sync(&fatass);
-		print(filepath);
-		print("\n");
-	}
-	else if(StringStartsWith(cmd, "cd "))
-	{
-		fat_dir_open(&dir,curdir);
-		unsigned short len = StringLength(curdir);
-		const char* dir = cmd+3;
-		if(StringEquals(dir,".."))
-		{
-			StringRemoveAfterLast(curdir,'/',len-1);
-			return;
-		}
-		StringConcat(curdir,curdir,dir);
-		StringConcat(curdir,curdir,"/");
-		int err = fat_dir_open(&dir,curdir);
-		if(err != 0)
-		{
-			print("invalid directory");
-			curdir[len] = '\x00';
-		}
-	}
-	
-	else if(StringEquals(cmd,"clr"))
-	{
-		for(int i = 0; i < 1200; i++)
-		{
-			terminal[i] = '\x00';
-			terminalFlags[i] = '\x00';
-		}
-		for(int i = 0; i < 256; i++)
-		{
-			currentcmd[i] = '\x00';
-		}
-		currentcmdpos = 0;
-		printptr = 0;
-	}
-	else if(StringEquals(cmd, "ls"))
-	{
-		int ret = fat_dir_open(&dir,curdir);
-		while(ret == 0)
-		{
-			ret = fat_dir_next(&dir);
-			ret |= fat_dir_read(&dir,&dirinfo);
-			dirinfo.name[dirinfo.name_len] = '\x00';
-			if(dirinfo.attr&FAT_ATTR_DIR)
-			{
-				printFlags("\xfe\xee","\xff\x00");
-			}
-			else
-			{
-				print("\xda ");
-			}
-			print(dirinfo.name);
-			print("\n");
-		}
-		fat_dir_rewind(&dir);
-	}
-	
-	else if(StringStartsWith(cmd, "./"))
-	{
-		char filepath[256];
-		StringConcat(filepath,curdir,cmd+2);
-		File file;
-		int err = fat_file_open(&file,filepath,FAT_READ);
-		if(err)
-		{
-			print(fat_get_error(err));
-			print("\n");
-			return;
-		}
-		DirInfo di;
-		fat_stat(filepath,&di);
-		void* program = malloc(di.size);
-		int l;
-		fat_file_read(&file,program,di.size, &l);
-		fat_file_close(&file);
-		Run(program);
-		free(program);
-	}
-	
-	else
-	{
-		print("\ninvalid command: ");
-		print(cmd);
-		print("\n");
-	}
-}
+
 
 extern volatile uint8_t _binary___disk_img_start[];
 
@@ -936,14 +742,42 @@ bool write(const uint8_t* buf, uint32_t sect)
 
 DiskOps disk = {.read=read,.write=write};
 
+void LoadShell()
+{
+	File file;
+	int err = fat_file_open(&file,"/drv/shell.elf",FAT_READ);
+	if(err)
+	{
+		print(fat_get_error(err));
+		print("\n");
+		return;
+	}
+	DirInfo di;
+	fat_stat("/drv/shell.elf",&di);
+	void* shell = malloc(di.size);
+	int l;
+	fat_file_read(&file,shell,di.size, &l);
+	fat_file_close(&file);
+	Run(shell);
+}
+
+void SYSTICK_Handler()
+{
+	draw();
+	blit();
+}
+
 void main()
 {
+	
+	
 	rom_func_lookup_inline = (rom_table_lookup_fn) (uintptr_t)*(uint16_t*)(0x16);
 	
 	int mounterr = fat_mount(&disk,0,&fatass,"drv");
 	__asm__ volatile ("cpsid i");
 	configure_usbcdc();
 	__asm__ volatile ("cpsie i");
+	
 	
 	
 	
@@ -1087,17 +921,17 @@ void main()
 	| PADS_BANK0_GPIO11_SLEWFAST(0);
 	
 	DEV_Digital_Write(LCD_RST_PIN, 1);
-	for(volatile int i = 0; i < 1000000; i++)
+	for(volatile int i = 0; i < 100000; i++)
 	{
 		
 	}
 	DEV_Digital_Write(LCD_RST_PIN, 0);
-	for(volatile int i = 0; i < 1000000; i++)
+	for(volatile int i = 0; i < 100000; i++)
 	{
 		
 	}
 	DEV_Digital_Write(LCD_RST_PIN, 1);
-	for(volatile int i = 0; i < 10000000; i++)
+	for(volatile int i = 0; i < 100000; i++)
 	{
 		
 	}
@@ -1191,10 +1025,21 @@ void main()
 	print(" KB\n__userspace_begin: ");
 	printDword(__userspace_begin);
 	print("\n");
-	print(curdir);
-	print(">");
+	char typed = 0;	
+	usbcdc_getchar(&typed);
+	
+	M33_SYST_CVR = 0xf00000;
+	M33_SYST_RVR = 0xf00000;
+	M33_SYST_CSR = 0b111;
+	
+	
+	
+	LoadShell();
+	
+	
 	while(1)
 	{
+		/*
 		char typed = 0;	
 		if (usbcdc_getchar(&typed))
 		{
@@ -1307,9 +1152,10 @@ void main()
 		{
 			curchar = 0x0;
 		}
+		*/
 		
-		draw();
 		
+		/*
 		char next00 = curchar<<2;
 		char next01 = (curchar<<2) | 0b01;
 		char next10 = (curchar<<2) | 0b10;
@@ -1343,8 +1189,8 @@ void main()
 		{
 			renderChar(i+21,29,hchar+i,'\x00');
 		}
+		*/
 		
-		blit();
 	}
 }
 

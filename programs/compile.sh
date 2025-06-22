@@ -1,2 +1,2 @@
-arm-none-eabi-gcc test.c -flto -Wl,-flto -nostartfiles -specs=nano.specs -Os -Wl,-gc-sections -Wl,-strip-all -ffreestanding -march=armv8-m.main+fp+dsp -mfloat-abi=hard -mthumb -std=c11 -o test.elf -Wl,--strip-all -pie -I../
-arm-none-eabi-objcopy --remove-section .persistent --remove-section .comment --remove-section .ARM.attributes ./test.elf ./test.elf
+arm-none-eabi-gcc entry.c shell.c -flto -Wl,-flto -nostartfiles -specs=nano.specs -Os -Wl,-gc-sections -Wl,-strip-all -ffreestanding -march=armv8-m.main+fp+dsp -mfloat-abi=hard -mthumb -std=c11 -o shell.elf -Wl,--strip-all -pie -I../
+arm-none-eabi-objcopy --remove-section .persistent --remove-section .comment --remove-section .ARM.attributes ./shell.elf ./shell.elf

@@ -123,28 +123,62 @@ typedef struct {
 extern void print(const char* text);
 extern void printDword(uint32_t v);
 
-void Relocate(void* data, Elf32_Rel* rels, uint32_t count)
+void Relocate(void* data, Elf32_Rel* rels, uint32_t count, uint32_t start, uint32_t size, int offset)
 {
 	for(int i = 0; i < count; i++)
 	{
-		*(uint32_t*)(((char*)data) + rels[i].r_offset) += (uint32_t)(data);
+		if(rels[i].r_offset == 0xffffffff)
+		{
+			continue;
+		}
+		uint32_t ptr = *(uint32_t*)(((char*)data) + rels[i].r_offset);
+		if((ptr >= start) && (ptr < (start+size)))
+		{
+			*(uint32_t*)(((char*)data) + rels[i].r_offset) += (uint32_t)(data)+offset;
+			rels[i].r_offset = 0xffffffff;
+		}
 	}
 }
 
-typedef void(*printfunc_t)(const char*);
-typedef void(*entryfunc_t)(printfunc_t);
+typedef void(*entryfunc_t)(sys_f*);
+
+void* malloc(uint32_t size);
+void free(void* ptr);
 
 void Run(void* data)
 {
 	Elf32_Ehdr* ehdr = (Elf32_Ehdr*)data;
 	Elf32_Shdr* shdr = (Elf32_Shdr*)(((char*)data)+ehdr->e_shoff);
+	Elf32_Shdr* rel_hdr = 0;
+	Elf32_Shdr* bss_hdr = 0;
 	for(int i = 0; i < ehdr->e_shnum; i++)
 	{
 		if(shdr[i].sh_type == SHT_REL)
 		{
-			Relocate(data,(Elf32_Rel*)(((char*)data)+shdr[i].sh_offset),shdr[i].sh_size/sizeof(Elf32_Rel));
+			rel_hdr = &shdr[i];
+			break;
+		}
+	}
+	for(int i = 0; i < ehdr->e_shnum; i++)
+	{
+		if((shdr[i].sh_type == SHT_NOBITS) && (shdr[i].sh_size > 0))
+		{
+			bss_hdr = &shdr[i];
+			break;
+		}
+	}
+	Elf32_Rel* rels = (Elf32_Rel*)(((char*)data)+rel_hdr->sh_offset);
+	uint32_t relcount = rel_hdr->sh_size/sizeof(Elf32_Rel);
+	void* bss = malloc(bss_hdr->sh_size);
+	Relocate(data,rels,relcount,bss_hdr->sh_addr,bss_hdr->sh_size,(int)bss-(int)data-(int)bss_hdr->sh_addr);
+	for(int i = 0; i < ehdr->e_shnum; i++)
+	{
+		if((shdr[i].sh_type == SHT_PROGBITS) && (shdr[i].sh_size > 0))
+		{
+			Relocate(data,rels,relcount,shdr[i].sh_addr,shdr[i].sh_size,(int)shdr[i].sh_offset-(int)shdr[i].sh_addr);
 		}
 	}
 	entryfunc_t entry = (entryfunc_t)(((char*)data) + ehdr->e_entry);
 	entry(sys);
+	free(bss);
 }
