@@ -1,6 +1,16 @@
-typedef void (*printfunc_t)(const char*);
+#include "sys.h"
 
-void _start(printfunc_t print)
+sys_f* sys;
+
+void main();
+
+void _start(sys_f* _sys)
 {
-	print("hi it works\n");
+	sys = _sys;
+	main();
+}
+
+void main()
+{
+	sys->print("hi it works\n");
 }

@@ -1,2 +1,2 @@
-arm-none-eabi-gcc -c test.c -o test.o
-arm-none-eabi-objcopy -O binary --change-section-address .text=0 ./test.o ./test
+arm-none-eabi-gcc test.c -flto -Wl,-flto -nostartfiles -specs=nano.specs -Os -Wl,-gc-sections -Wl,-strip-all -ffreestanding -march=armv8-m.main+fp+dsp -mfloat-abi=hard -mthumb -std=c11 -o test.elf -Wl,--strip-all -pie -I../
+arm-none-eabi-objcopy --remove-section .persistent --remove-section .comment --remove-section .ARM.attributes ./test.elf ./test.elf

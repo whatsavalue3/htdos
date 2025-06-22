@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include "sys.h"
 
 #define ELF_NIDENT	16
 
@@ -145,5 +146,5 @@ void Run(void* data)
 		}
 	}
 	entryfunc_t entry = (entryfunc_t)(((char*)data) + ehdr->e_entry);
-	entry(print);
+	entry(sys);
 }

@@ -10,6 +10,8 @@
 #include <usbcdc.h>
 #include "fat.h"
 #include <stddef.h>
+#include "sys.h"
+
 
 #define GPIO_RESETS (RESETS_RESET_IO_BANK0_MASK | RESETS_RESET_PADS_BANK0_MASK | RESETS_RESET_PWM_MASK)
 
@@ -595,6 +597,15 @@ char* StringRemoveFirst(char* a, char chr, unsigned short len)
 }
 extern void Run(void* data);
 
+void free(void* ptr);
+
+
+sys_f s_sys = {
+	.malloc = malloc,
+	.free = free,
+	.print = print,
+	.printDword = printDword};
+sys_f* sys = &s_sys;
 
 Dir dir;
 DirInfo dirinfo;
