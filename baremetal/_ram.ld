@@ -73,7 +73,7 @@ SECTIONS
 	} > RAM
 	__ebss = .;
 	__end = .;
-	__userspace_begin = .;
+	__userspace_begin = ALIGN(16);
 
     
 }

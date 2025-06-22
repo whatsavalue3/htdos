@@ -718,6 +718,8 @@ static int parse_lfn_name(Dir* dir)
   return g_len <= 255 ? FAT_ERR_NONE : FAT_ERR_BROKEN;
 }
 
+void print(const char* text);
+
 //------------------------------------------------------------------------------
 static int dir_search(Dir* dir, const char* name, int len, Loc* loc)
 {
@@ -757,6 +759,7 @@ static int dir_search(Dir* dir, const char* name, int len, Loc* loc)
       if (err)
         return err;
 
+		
       sfn = dir_ptr(dir);
 
       if (sfn_is_free(sfn) || sfn_is_lfn(sfn) || g_crc != get_crc(sfn->name))
@@ -767,6 +770,7 @@ static int dir_search(Dir* dir, const char* name, int len, Loc* loc)
     }
     else
     {
+		
       if (!memcmp(sfn_name, sfn->name, sizeof(sfn_name)))
         return FAT_ERR_NONE;
     }

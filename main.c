@@ -580,6 +580,22 @@ void StringRemoveAfterLast(char* a, char chr, unsigned short start)
 	}
 }
 
+char* StringRemoveFirst(char* a, char chr, unsigned short len)
+{
+	unsigned short o = 0;
+	while(o < len)
+	{
+		++o;
+		if(a[o] == chr)
+		{
+			a[o] = '\x00';
+			return &a[o+1];
+		}
+	}
+}
+extern void Run(void* data);
+
+
 Dir dir;
 DirInfo dirinfo;
 char curdir[256] = "/drv/";
@@ -610,6 +626,34 @@ void Exec(const char* cmd)
 		}
 		fat_sync(&fatass);
 	}
+	else if(StringStartsWith(cmd, "wr "))
+	{
+		unsigned short len = StringLength(curdir);
+		char* content = StringRemoveFirst(cmd+3,' ',len);
+		char filepath[256];
+		StringConcat(filepath,curdir,cmd+3);
+		File file;
+		fat_file_open(&file,filepath,FAT_WRITE | FAT_CREATE);
+		int l;
+		fat_file_write(&file,content,StringLength(content), &l);
+		fat_file_close(&file);
+		fat_sync(&fatass);
+	}
+	else if(StringStartsWith(cmd, "cat "))
+	{
+		unsigned short len = StringLength(curdir);
+		char filepath[256];
+		StringConcat(filepath,curdir,cmd+4);
+		File file;
+		fat_file_open(&file,filepath,FAT_READ | FAT_CREATE);
+		int l;
+		fat_file_read(&file,filepath,256, &l);
+		filepath[l] = '\x00';
+		fat_file_close(&file);
+		fat_sync(&fatass);
+		print(filepath);
+		print("\n");
+	}
 	else if(StringStartsWith(cmd, "cd "))
 	{
 		fat_dir_open(&dir,curdir);
@@ -628,8 +672,8 @@ void Exec(const char* cmd)
 			print("invalid directory");
 			curdir[len] = '\x00';
 		}
-		
 	}
+	
 	else if(StringEquals(cmd,"clr"))
 	{
 		for(int i = 0; i < 1200; i++)
@@ -652,12 +696,44 @@ void Exec(const char* cmd)
 			ret = fat_dir_next(&dir);
 			ret |= fat_dir_read(&dir,&dirinfo);
 			dirinfo.name[dirinfo.name_len] = '\x00';
-			printFlags("\xfe\xee","\xff\x00");
+			if(dirinfo.attr&FAT_ATTR_DIR)
+			{
+				printFlags("\xfe\xee","\xff\x00");
+			}
+			else
+			{
+				print("\xda ");
+			}
 			print(dirinfo.name);
 			print("\n");
 		}
 		fat_dir_rewind(&dir);
-		//fat_dir_create(&dir,"/newfolder");
+	}
+	
+	else if(StringStartsWith(cmd, "./"))
+	{
+		char filepath[256];
+		StringConcat(filepath,curdir,cmd+2);
+		File file;
+		int err = fat_file_open(&file,filepath,FAT_READ);
+		if(err)
+		{
+			print(fat_get_error(err));
+			print("\n");
+			return;
+		}
+		DirInfo di;
+		fat_stat(filepath,&di);
+		void* program = malloc(di.size);
+		int l;
+		fat_file_read(&file,program,di.size, &l);
+		fat_file_close(&file);
+		for(volatile int i = 0; i < 10000000; i++)
+		{
+			continue;
+		}
+		Run(program);
+		free(program);
 	}
 	
 	else
@@ -805,9 +881,6 @@ void flash_range_program(uint32_t flash_offs, const uint8_t *data, size_t count)
 	
 	
 	flash_init_boot2_copyout();
-    for (uintptr_t offset = 0; offset < 0x4000000; offset += 8) {
-        *(volatile uint8_t *) (0x18000001 + offset) = 0;
-    }
 	flash_rp2350_qmi_save_state_t qmi_save;
 	flash_rp2350_save_qmi_cs1(&qmi_save);
 	connect_internal_flash_func();
@@ -817,22 +890,25 @@ void flash_range_program(uint32_t flash_offs, const uint8_t *data, size_t count)
 	flash_flush_cache_func();
 	flash_enable_xip_via_boot2();
 	flash_rp2350_restore_qmi_cs1(&qmi_save);
+	for (uintptr_t offset = 0; offset < count; offset += 8) {
+        *(volatile uint8_t *) (0x18000001 + offset + flash_offs) = 0;
+    }
 }
 
 
-uint32_t ass[512];
+uint32_t ass[1024];
 
 bool write(const uint8_t* buf, uint32_t sect)
 {
-	for(int i = 0; i < 512; i++)
+	for(int i = 0; i < 1024; i++)
 	{
-		ass[i] = ((uint32_t*)_binary___disk_img_start)[((sect&0xfffffffc)<<7) + i];
+		ass[i] = ((uint32_t*)_binary___disk_img_start)[((sect&0xfffffff8)<<7) + i];
 	}
 	for(int i = 0; i < 128; i++)
 	{
-		ass[i+((sect&0x3)<<7)] = ((uint32_t*)buf)[i];
+		ass[i+((sect&0x7)<<7)] = ((uint32_t*)buf)[i];
 	}
-	flash_range_program(_binary___disk_img_start-0x10000000+((sect&0xfffffffc)<<9),ass,4096);
+	flash_range_program(_binary___disk_img_start-0x10000000+((sect&0xfffffff8)<<9),ass,4096);
 	/*
 	for(int i = 0; i < 128; i++)
 	{
@@ -852,9 +928,6 @@ bool write(const uint8_t* buf, uint32_t sect)
 }
 
 DiskOps disk = {.read=read,.write=write};
-
-
-
 
 void main()
 {
@@ -1108,7 +1181,9 @@ void main()
 	
 	print("available ram:  ");
 	printInt((0x20080000 - (uint32_t)__userspace_begin)>>10);
-	print(" KB\n");
+	print(" KB\n__userspace_begin: ");
+	printDword(__userspace_begin);
+	print("\n");
 	print(curdir);
 	print(">");
 	while(1)
