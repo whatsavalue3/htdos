@@ -728,10 +728,6 @@ void Exec(const char* cmd)
 		int l;
 		fat_file_read(&file,program,di.size, &l);
 		fat_file_close(&file);
-		for(volatile int i = 0; i < 10000000; i++)
-		{
-			continue;
-		}
 		Run(program);
 		free(program);
 	}
