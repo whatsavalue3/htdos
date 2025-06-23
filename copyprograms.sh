@@ -7,6 +7,7 @@ sudo mount ${LOOPMOUNT} ./bap
 sudo rm -rf ./bap/*
 
 sudo cp ./programs/*.ELF ./bap/
+sudo cp ./sysdrivers/*.SYS ./bap/
 
 sudo umount ./bap
 

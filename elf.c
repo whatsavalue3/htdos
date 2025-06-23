@@ -145,7 +145,8 @@ typedef void(*entryfunc_t)(sys_f*);
 void* malloc(uint32_t size);
 void free(void* ptr);
 
-void Run(void* data)
+
+void* RelocateElf(void* data, void** bss)
 {
 	Elf32_Ehdr* ehdr = (Elf32_Ehdr*)data;
 	Elf32_Shdr* shdr = (Elf32_Shdr*)(((char*)data)+ehdr->e_shoff);
@@ -169,8 +170,8 @@ void Run(void* data)
 	}
 	Elf32_Rel* rels = (Elf32_Rel*)(((char*)data)+rel_hdr->sh_offset);
 	uint32_t relcount = rel_hdr->sh_size/sizeof(Elf32_Rel);
-	void* bss = malloc(bss_hdr->sh_size);
-	Relocate(data,rels,relcount,bss_hdr->sh_addr,bss_hdr->sh_size,(int)bss-(int)data-(int)bss_hdr->sh_addr);
+	*bss = malloc(bss_hdr->sh_size);
+	Relocate(data,rels,relcount,bss_hdr->sh_addr,bss_hdr->sh_size,(int)(*bss)-(int)data-(int)bss_hdr->sh_addr);
 	for(int i = 0; i < ehdr->e_shnum; i++)
 	{
 		if((shdr[i].sh_type == SHT_PROGBITS) && (shdr[i].sh_size > 0))
@@ -178,7 +179,22 @@ void Run(void* data)
 			Relocate(data,rels,relcount,shdr[i].sh_addr,shdr[i].sh_size,(int)shdr[i].sh_offset-(int)shdr[i].sh_addr);
 		}
 	}
-	entryfunc_t entry = (entryfunc_t)(((char*)data) + ehdr->e_entry);
+	return (((char*)data) + ehdr->e_entry);
+}
+
+void Run(void* data)
+{
+	void* bss;
+	entryfunc_t entry = (entryfunc_t)RelocateElf(data,&bss);
 	entry(sys);
 	free(bss);
+}
+
+typedef void*(*driverfunc_t)(sys_f*);
+
+void* RunDriver(void* data)
+{
+	void* bss;
+	driverfunc_t entry = (driverfunc_t)RelocateElf(data,&bss);
+	return entry(sys);
 }

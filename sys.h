@@ -2,6 +2,8 @@
 #include <stdbool.h>
 #include "fat.h"
 
+typedef void(*systickhandler_t)();
+
 typedef struct
 {
 	void* (*malloc)(uint32_t size);
@@ -28,6 +30,7 @@ typedef struct
 	char* terminal;
 	char* terminalFlags;
 	unsigned short* printptr;
+	void (*AddSystickHandler)(systickhandler_t h);
 
 	
 } sys_f;
