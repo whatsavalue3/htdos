@@ -536,11 +536,12 @@ sys_f s_sys = {
 	.print = print,
 	.printDword = printDword,
 	.printFlags = printFlags,
-	.fopen = fat_dir_open,
+	.fopen = fat_file_open,
 	.fwrite = fat_file_write,
 	.fread = fat_file_read,
 	.fclose = fat_file_close,
 	.stat = fat_stat,
+	.gerror = fat_get_error,
 	.dopen = fat_dir_open,
 	.dcreate = fat_dir_create,
 	.dread = fat_dir_read,
@@ -744,16 +745,16 @@ DiskOps disk = {.read=read,.write=write};
 
 void LoadShell()
 {
+	DirInfo di;
+	fat_stat("/drv/SHELL.ELF",&di);
 	File file;
-	int err = fat_file_open(&file,"/drv/shell.elf",FAT_READ);
+	int err = fat_file_open(&file,"/drv/SHELL.ELF",FAT_READ);
 	if(err)
 	{
 		print(fat_get_error(err));
 		print("\n");
 		return;
 	}
-	DirInfo di;
-	fat_stat("/drv/shell.elf",&di);
 	void* shell = malloc(di.size);
 	int l;
 	fat_file_read(&file,shell,di.size, &l);
@@ -763,8 +764,10 @@ void LoadShell()
 
 void SYSTICK_Handler()
 {
+	M33_SYST_CSR = 0b000;
 	draw();
 	blit();
+	M33_SYST_CSR = 0b111;
 }
 
 void main()
@@ -1028,8 +1031,8 @@ void main()
 	char typed = 0;	
 	usbcdc_getchar(&typed);
 	
-	M33_SYST_CVR = 0xf00000;
-	M33_SYST_RVR = 0xf00000;
+	M33_SYST_CVR = 0x100000;
+	M33_SYST_RVR = 0x100000;
 	M33_SYST_CSR = 0b111;
 	
 	

@@ -39,6 +39,7 @@ enum
   CLUST_BAD  = 0x08,
 };
 
+
 //------------------------------------------------------------------------------
 typedef struct __attribute__((packed))
 {
@@ -718,8 +719,6 @@ static int parse_lfn_name(Dir* dir)
   return g_len <= 255 ? FAT_ERR_NONE : FAT_ERR_BROKEN;
 }
 
-void print(const char* text);
-
 //------------------------------------------------------------------------------
 static int dir_search(Dir* dir, const char* name, int len, Loc* loc)
 {
@@ -793,8 +792,10 @@ static int follow_path(Dir* dir, const char** path, Loc* loc)
   bool dir_enterable;
   const char* str = *path;
 
+
   if (*str++ != '/')
     return FAT_ERR_PATH;
+
   len = subpath_len(str);
   if (len == 0)
     return FAT_ERR_PATH;
@@ -829,7 +830,7 @@ static int follow_path(Dir* dir, const char** path, Loc* loc)
     err = dir_search(dir, str, len, loc);
     if (err)
       return err;
-
+  
     str += len;
     *path = str;
 

@@ -29,6 +29,7 @@ void Exec(const char* cmd)
 		}
 		else
 		{
+			sys->print(sys->gerror(err));
 			sys->print("\n");
 		}
 	}
@@ -118,15 +119,16 @@ void Exec(const char* cmd)
 	{
 		char filepath[256];
 		StringConcat(filepath,curdir,cmd+2);
+		DirInfo di;
+		sys->stat(filepath,&di);
 		File file;
 		int err = sys->fopen(&file,filepath,FAT_READ);
 		if(err)
 		{
+			sys->print(sys->gerror(err));
 			sys->print("\n");
 			return;
 		}
-		DirInfo di;
-		sys->stat(filepath,&di);
 		void* program = sys->malloc(di.size);
 		int l;
 		sys->fread(&file,program,di.size, &l);
@@ -149,7 +151,6 @@ void main()
 	int progress = 0;
 	char curchar = 0;
 	uint32_t previn = 0;
-	
 	while(1)
 	{
 		if((sio.gpio_in&(1<<2)) == 0)
@@ -268,25 +269,53 @@ void main()
 			amnt = 18;
 		}
 		
-		for(int i = 0; i < amnt; i++)
+		for(int i = 0; i < 40; i++)
 		{
-			sys->renderChar(i,27,hchar+i,'\x00');
+			if(i < amnt)
+			{
+				sys->renderChar(i,27,hchar+i,'\x00');
+			}
+			else
+			{
+				sys->renderChar(i,27,'\x00','\x00');
+			}
 		}
 		hchar = next01<<shift;
 		
-		for(int i = 0; i < amnt; i++)
+		for(int i = 0; i < 40; i++)
 		{
-			sys->renderChar(i+21,27,hchar+i,'\x00');
+			if(i < amnt)
+			{
+				sys->renderChar(i+21,27,hchar+i,'\x00');
+			}
+			else
+			{
+				sys->renderChar(i+21,27,'\x00','\x00');
+			}
 		}
 		hchar = next10<<shift;
-		for(int i = 0; i < amnt; i++)
+		for(int i = 0; i < 40; i++)
 		{
-			sys->renderChar(i,29,hchar+i,'\x00');
+			if(i < amnt)
+			{
+				sys->renderChar(i,29,hchar+i,'\x00');
+			}
+			else
+			{
+				sys->renderChar(i,29,'\x00','\x00');
+			}
 		}
 		hchar = next11<<shift;
-		for(int i = 0; i < amnt; i++)
+		for(int i = 0; i < 40; i++)
 		{
-			sys->renderChar(i+21,29,hchar+i,'\x00');
+			if(i < amnt)
+			{
+				sys->renderChar(i+21,29,hchar+i,'\x00');
+			}
+			else
+			{
+				sys->renderChar(i+21,29,'\x00','\x00');
+			}
 		}
 	}
 }

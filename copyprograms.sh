@@ -4,7 +4,9 @@ mkdir -p bap
 
 sudo mount ${LOOPMOUNT} ./bap
 
-sudo cp ./programs/*.elf ./bap/
+sudo rm -rf ./bap/*
+
+sudo cp ./programs/*.ELF ./bap/
 
 sudo umount ./bap
 

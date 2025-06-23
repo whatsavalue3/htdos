@@ -16,6 +16,7 @@ typedef struct
 	int (*fseek)(File* file, int offset, int seek);
 	int (*fsync)(File* file);
 	int (*stat)(const char* path, DirInfo* info);
+	const char* (*gerror)(int err);
 	int (*dcreate)(Dir* dir, const char* path);
 	int (*dopen)(Dir* dir, const char* path);
 	int (*dread)(Dir* dir, DirInfo* info);
