@@ -6,7 +6,7 @@ Dir dir;
 DirInfo dirinfo;
 char curdir[256] = "/drv/";
 char currentcmd[256] = "";
-unsigned short currentcmdpos = 0;
+unsigned short currentcmdpos;
 void Exec(const char* cmd)
 {
 	if(StringEquals(cmd, "hi"))
@@ -98,8 +98,7 @@ void Exec(const char* cmd)
 		int ret = sys->dopen(&dir,curdir);
 		while(ret == 0)
 		{
-			ret = sys->dnext(&dir);
-			ret |= sys->dread(&dir,&dirinfo);
+			ret = sys->dread(&dir,&dirinfo);
 			dirinfo.name[dirinfo.name_len] = '\x00';
 			if(dirinfo.attr&FAT_ATTR_DIR)
 			{
@@ -111,6 +110,7 @@ void Exec(const char* cmd)
 			}
 			sys->print(dirinfo.name);
 			sys->print("\n");
+			ret |= sys->dnext(&dir);
 		}
 		sys->drewind(&dir);
 	}
@@ -148,6 +148,7 @@ void Exec(const char* cmd)
 
 void main()
 {
+	currentcmdpos = 0;
 	int progress = 0;
 	char curchar = 0;
 	uint32_t previn = 0;
@@ -253,6 +254,7 @@ void main()
 		if(currentcmdpos > 254)
 		{
 			curchar = 0x0;
+			currentcmdpos = 0;
 		}
 		
 		

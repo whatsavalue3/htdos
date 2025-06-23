@@ -565,7 +565,7 @@ bool read(uint8_t* buf, uint32_t sect)
 {
 	for(int i = 0; i < 128; i++)
 	{
-		((uint32_t*)buf)[i] = ((uint32_t*)(_binary___disk_img_start + 0x00000000))[(sect<<7) + i];
+		((uint32_t*)buf)[i] = ((uint32_t*)(_binary___disk_img_start))[(sect<<7) + i];
 	}
 	return true;
 }
@@ -714,6 +714,7 @@ uint32_t ass[1024];
 
 bool write(const uint8_t* buf, uint32_t sect)
 {
+	M33_SYST_CSR = 0b000;
 	for(int i = 0; i < 1024; i++)
 	{
 		ass[i] = ((uint32_t*)_binary___disk_img_start)[((sect&0xfffffff8)<<7) + i];
@@ -723,6 +724,7 @@ bool write(const uint8_t* buf, uint32_t sect)
 		ass[i+((sect&0x7)<<7)] = ((uint32_t*)buf)[i];
 	}
 	flash_range_program(_binary___disk_img_start-0x10000000+((sect&0xfffffff8)<<9),ass,4096);
+	M33_SYST_CSR = 0b111;
 	/*
 	for(int i = 0; i < 128; i++)
 	{
@@ -1042,6 +1044,11 @@ void main()
 	
 	while(1)
 	{
+		
+		for(volatile int i = 0; i < 1000000; i++)
+		{
+			continue;
+		}
 		/*
 		char typed = 0;	
 		if (usbcdc_getchar(&typed))
@@ -1199,7 +1206,7 @@ void main()
 
 
 
-unsigned char allocated[8192];
+unsigned char allocated[8192] = {};
 
 void* malloc(uint32_t size)
 {
